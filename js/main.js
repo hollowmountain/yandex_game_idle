@@ -130,6 +130,14 @@
 
     // --- кнопки ---
     UI.el.dig.addEventListener('pointerdown', doDig);
+
+    // Копать можно тыком в любое свободное место, а не только по кнопке.
+    // Интерфейс из этого исключён, иначе покупка бура считалась бы ещё и ударом.
+    const UI_ZONES = '#panel, #tools, #boosts, #modal, #dig';
+    document.addEventListener('pointerdown', e => {
+      if (e.target.closest && e.target.closest(UI_ZONES)) return;
+      doDig(e);
+    });
     UI.el['btn-pause'].addEventListener('click', () => setPause(!manualPause, true));
     UI.el['btn-lang'].addEventListener('click', () => {
       State.raw.lang = I18N.toggle();
