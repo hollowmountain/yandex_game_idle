@@ -1,0 +1,84 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<title>Deep Core</title>
+<meta name="theme-color" content="#0d0b0f">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%230d0b0f'/%3E%3Cpath d='M16 6 L23 22 L16 27 L9 22 Z' fill='%23ffa62b'/%3E%3C/svg%3E">
+<link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+
+<div id="boot">
+  <div class="boot-inner">
+    <div class="boot-logo">DEEP<span>CORE</span></div>
+    <div class="boot-bar"><i></i></div>
+  </div>
+</div>
+
+<div id="app" hidden>
+
+  <canvas id="shaft"></canvas>
+
+  <header id="hud">
+    <div class="hud-row">
+      <div class="stat">
+        <span class="stat-label" data-i18n="depth">Глубина</span>
+        <span class="stat-value" id="v-depth">0 м</span>
+      </div>
+      <div class="stat right">
+        <span class="stat-label" data-i18n="ore">Руда</span>
+        <span class="stat-value accent" id="v-ore">0</span>
+      </div>
+    </div>
+    <div class="hud-row sub">
+      <div class="layer-name" id="v-layer">Почва</div>
+      <div class="rate" id="v-rate">0 м/с</div>
+    </div>
+    <div class="progress"><i id="v-progress"></i></div>
+  </header>
+
+  <div id="tools">
+    <button class="tool" id="btn-lang" title="Язык / Language">RU</button>
+    <button class="tool" id="btn-sound" title="Звук / Sound">🔊</button>
+    <button class="tool" id="btn-pause" title="Пауза / Pause">⏸</button>
+  </div>
+
+  <div id="boosts"></div>
+
+  <main id="panel">
+    <nav id="tabs">
+      <button class="tab active" data-tab="drills" data-i18n="tab_drills">Буры</button>
+      <button class="tab" data-tab="upgrades" data-i18n="tab_upgrades">Улучшения</button>
+      <button class="tab" data-tab="core" data-i18n="tab_core">Ядро</button>
+    </nav>
+    <div class="tab-body" id="tab-drills"></div>
+    <div class="tab-body" id="tab-upgrades" hidden></div>
+    <div class="tab-body" id="tab-core" hidden></div>
+  </main>
+
+  <button id="dig" aria-label="dig">
+    <span class="dig-label" data-i18n="dig">КОПАТЬ</span>
+    <span class="dig-power" id="v-clickpower">+1 м</span>
+  </button>
+
+</div>
+
+<div id="modal" hidden>
+  <div class="modal-card">
+    <h2 id="modal-title"></h2>
+    <p id="modal-text"></p>
+    <button id="modal-ok" data-i18n="ok">Продолжить</button>
+  </div>
+</div>
+
+<script src="js/i18n.js"></script>
+<script src="js/data.js"></script>
+<script src="js/sdk.js"></script>
+<script src="js/state.js"></script>
+<script src="js/render.js"></script>
+<script src="js/ui.js"></script>
+<script src="js/main.js"></script>
+</body>
+</html>
