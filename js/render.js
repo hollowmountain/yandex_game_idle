@@ -363,6 +363,14 @@ const Render = (() => {
     if (!(colW > 100)) colW = W;
   }
 
+  // Ширина ствола и, следом, размер машины и крупность породы. Всё меряется
+  // по колонке интерфейса: канвас на десктопе растянут во всё окно, и привязка
+  // к нему превращала шахту в нитку посреди огромного поля камня.
+  const shaftWidth = () => Math.min(colW * 0.5, 340);
+  // Тайл породы тоже подрастает: одинаковая крупность камня на телефоне и на
+  // мониторе означает, что на мониторе он выглядит мелкой галькой.
+  const texScale = () => Math.max(1, Math.min(colW / 375, 1.75));
+
   /* ---------- эффекты ---------- */
 
   function burst(power) {
@@ -581,12 +589,14 @@ const Render = (() => {
       ctx.fillStyle = g;
       ctx.fillRect(-30, y0 - 30, W + 60, y1 - y0 + 60);
 
+      const k = texScale();
+      ctx.save();
       ctx.globalAlpha = 0.16;
-      ctx.translate(0, -(topM * pxPerM) % TEX);
+      ctx.scale(k, k);
+      ctx.translate(0, -(topM * pxPerM / k) % TEX);
       ctx.fillStyle = ctx.createPattern(texture(layer), 'repeat');
-      ctx.fillRect(-30, y0 - 30, W + 60, y1 - y0 + 90);
-      ctx.translate(0, (topM * pxPerM) % TEX);
-      ctx.globalAlpha = 1;
+      ctx.fillRect(-30 / k, (y0 - 30) / k - TEX, (W + 60) / k, (y1 - y0 + 90) / k + TEX * 2);
+      ctx.restore();
 
       // сталактиты и сталагмиты
       for (let k = 0; k < 11; k++) {
@@ -630,15 +640,20 @@ const Render = (() => {
       ctx.save();
       ctx.beginPath(); ctx.rect(0, y0, W, y1 - y0); ctx.clip();
 
-      const off = -(topM * pxPerM) % TEX;
+      // Тайл кладём в увеличенном масштабе, поэтому и прокрутку, и границы
+      // пересчитываем в тех же увеличенных единицах.
+      const k = texScale();
+      ctx.save();
+      ctx.scale(k, k);
+      const off = -(topM * pxPerM / k) % TEX;
       ctx.translate(0, off);
       ctx.fillStyle = ctx.createPattern(texture(layer), 'repeat');
-      ctx.fillRect(0, y0 - off - TEX, W, (y1 - y0) + TEX * 2);
-      ctx.translate(0, -off);
+      ctx.fillRect(0, y0 / k - off - TEX, W / k, (y1 - y0) / k + TEX * 2);
+      ctx.restore();
 
       // Крупные пятна в мировых координатах: сетка привязана к метрам, а не к
       // тайлу, поэтому повтор не читается.
-      const cellPx = 190;
+      const cellPx = 190 * k;
       const cellM = cellPx / pxPerM;
       const i0 = Math.floor(topM / cellM) - 1;
       const i1 = Math.ceil(bottomM / cellM) + 1;
@@ -683,8 +698,8 @@ const Render = (() => {
   // вырезанный прямоугольник, а не как пробитый в камне тоннель.
   let shaftCv = null, shaftCtx = null, shaftW = 0, shaftH = 0;
 
-  function drawShaft(topM, pxPerM) {
-    const sw = Math.min(colW * 0.46, 250);
+  function drawShaft(topM, pxPerM, layer) {
+    const sw = shaftWidth();
     const sx = (W - sw) / 2;
     const sh = Math.max(2, drillY);
 
@@ -699,11 +714,17 @@ const Render = (() => {
     g.setTransform(dpr, 0, 0, dpr, 0, 0);
     g.clearRect(0, 0, sw, sh);
 
-    // Не чёрная дыра: к забою ствол теплеет от света бура.
+    // Ствол — это дыра в текущей породе, поэтому и цвет берётся от неё.
+    // Фиксированный тёплый оттенок смотрелся коричневым коробом посреди синего
+    // кристаллического слоя. К забою тоннель всё равно теплеет от света бура,
+    // но теплеет именно эта порода, а не абстрактный бурый.
+    const deep = mix(layer.dark, [0, 0, 0], 0.8);
+    const midc = mix(layer.dark, [0, 0, 0], 0.62);
+    const warm = mix(mix(layer.dark, [0, 0, 0], 0.42), [140, 84, 46], 0.5);
     const vg = g.createLinearGradient(0, 0, 0, sh);
-    vg.addColorStop(0, rgba([14, 11, 17], 0.97));
-    vg.addColorStop(0.65, rgba([26, 19, 22], 0.9));
-    vg.addColorStop(1, rgba([54, 34, 24], 0.84));
+    vg.addColorStop(0, rgba(deep, 0.97));
+    vg.addColorStop(0.62, rgba(midc, 0.93));
+    vg.addColorStop(1, rgba(warm, 0.86));
     g.fillStyle = vg;
     g.fillRect(0, 0, sw, sh);
 
@@ -761,7 +782,7 @@ const Render = (() => {
     // них нарисовано, — и с крепью, и с трубой.
     // Растворение должно смягчить кромку, а не съесть тоннель: на широком
     // размытии от ствола оставалась еле заметная тень.
-    const fade = Math.min(sw * 0.15, 30) / sw;
+    const fade = Math.min(sw * 0.2, 52) / sw;
     g.globalCompositeOperation = 'destination-in';
     const mg = g.createLinearGradient(0, 0, sw, 0);
     mg.addColorStop(0, 'rgba(0,0,0,0)');
@@ -824,9 +845,9 @@ const Render = (() => {
   function drawDrill(hot) {
     const bob = Math.sin(time * 2.2) * 1.4;
     const y = drillY + recoil * 9 + bob;
-    // Машина растёт вместе с колонкой: на телефоне множитель тот же 1.55,
-    // что и был, на десктопе бур перестаёт быть точкой в углу экрана.
-    const S = Math.max(1.55, Math.min(colW / 242, 2.15));
+    // Машина занимает постоянную долю ствола — примерно треть его ширины.
+    // Так она одинаково читается и на телефоне, и на широком мониторе.
+    const S = Math.max(1.55, shaftWidth() / 111);
 
     drawCable(y - 36 * S);
 
@@ -1018,7 +1039,7 @@ const Render = (() => {
     if (shake) ctx.translate((Math.random() - 0.5) * shake, (Math.random() - 0.5) * shake);
 
     drawRock(topM, pxPerM);
-    drawShaft(topM, pxPerM);
+    drawShaft(topM, pxPerM, layer);
 
     const lg = ctx.createRadialGradient(W / 2, drillY + 20, 0, W / 2, drillY + 20, W * 0.6);
     lg.addColorStop(0, rgba([255, 178, 92], 0.2 + glow * 0.16));
