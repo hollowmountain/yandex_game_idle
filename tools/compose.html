@@ -1,0 +1,125 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<title>Deep Core — сборка промоматериалов</title>
+<style>
+  body { background:#15121c; color:#ece7f0; font:14px "Segoe UI",system-ui,sans-serif; margin:0; padding:24px; }
+  h1 { font-size:17px; margin:0 0 4px; }
+  p { color:#9a91ab; margin:0 0 18px; max-width:78ch; line-height:1.55; }
+  .row { display:flex; gap:22px; flex-wrap:wrap; align-items:flex-start; }
+  figure { margin:0; }
+  figcaption { color:#9a91ab; font-size:12px; margin-top:6px; }
+  canvas { display:block; background:#000; box-shadow:0 8px 30px rgba(0,0,0,.5); }
+  #cover { width:800px; height:470px; }
+  #icon { width:256px; height:256px; }
+  button { margin-top:18px; padding:10px 18px; border-radius:9px; background:#ffa62b; color:#1a1013; font-weight:700; border:0; cursor:pointer; }
+  #log { margin-top:10px; color:#4ad991; white-space:pre-line; }
+</style>
+</head>
+<body>
+
+<h1>Сборка финальных промоматериалов</h1>
+<p>
+  Арт нарисован нейросетью, типографика ставится кодом — так буквы гарантированно
+  не поплывут и встанут ровно в тех размерах, которых требует платформа.
+  Иконка идёт без текста: в каталоге она размером с ноготь, надпись там
+  превращается в грязь, да и обрезанный текст внутри иконки — прямая причина отказа.
+</p>
+
+<div class="row">
+  <figure><canvas id="cover" width="800" height="470"></canvas><figcaption>Обложка 800×470</figcaption></figure>
+  <figure><canvas id="icon" width="512" height="512"></canvas><figcaption>Иконка 512×512</figcaption></figure>
+</div>
+
+<button id="save">Сохранить в shots/</button>
+<div id="log"></div>
+
+<script>
+const load = src => new Promise((res, rej) => {
+  const i = new Image(); i.onload = () => res(i); i.onerror = rej; i.src = src;
+});
+
+/* Текст с плотной обводкой и мягкой тенью — иначе он тонет в породе. */
+function stroked(g, text, x, y, fill, strokeW, shadow) {
+  g.save();
+  if (shadow) { g.shadowColor = 'rgba(0,0,0,.85)'; g.shadowBlur = shadow; g.shadowOffsetY = 3; }
+  g.lineJoin = 'round'; g.miterLimit = 2;
+  g.strokeStyle = 'rgba(6,4,8,.92)'; g.lineWidth = strokeW;
+  g.strokeText(text, x, y);
+  g.restore();
+  g.fillStyle = fill;
+  g.fillText(text, x, y);
+}
+
+async function buildCover() {
+  const cv = document.getElementById('cover'), g = cv.getContext('2d');
+  const W = 800, H = 470;
+  const art = await load('src/cover-art.png');
+
+  // Кадрируем по высоте и режем слева: справа стоит бур и слои, их трогать нельзя.
+  const need = art.height * (W / H);
+  const sx = Math.max(0, art.width - need);
+  g.drawImage(art, sx, 0, need, art.height, 0, 0, W, H);
+
+  // Подложка под текст: арт слева и так тёмный, но игрок смотрит превью
+  // на светлом фоне каталога, и контраст надо гарантировать.
+  const sh = g.createLinearGradient(0, 0, W * 0.56, 0);
+  sh.addColorStop(0, 'rgba(6,4,9,.88)');
+  sh.addColorStop(.55, 'rgba(6,4,9,.5)');
+  sh.addColorStop(1, 'rgba(6,4,9,0)');
+  g.fillStyle = sh; g.fillRect(0, 0, W, H);
+
+  g.textAlign = 'left'; g.textBaseline = 'alphabetic';
+
+  // надстрочник
+  g.font = '800 14px "Segoe UI",system-ui,sans-serif';
+  g.letterSpacing = '2.5px';
+  stroked(g, 'IDLE · СИМУЛЯТОР ШАХТЫ', 44, 168, '#ffb347', 4, 10);
+  g.letterSpacing = '0px';
+
+  // логотип
+  g.font = '900 68px "Segoe UI",system-ui,sans-serif';
+  stroked(g, 'DEEP', 42, 246, '#ffffff', 11, 16);
+  const grd = g.createLinearGradient(42, 262, 300, 322);
+  grd.addColorStop(0, '#ffe9a8'); grd.addColorStop(.45, '#ffb347'); grd.addColorStop(1, '#ff6b3d');
+  g.font = '900 68px "Segoe UI",system-ui,sans-serif';
+  stroked(g, 'CORE', 42, 314, grd, 11, 16);
+
+  // линейка
+  g.save();
+  g.shadowColor = 'rgba(0,0,0,.7)'; g.shadowBlur = 8;
+  const bar = g.createLinearGradient(44, 0, 152, 0);
+  bar.addColorStop(0, '#ffd76b'); bar.addColorStop(1, '#ff6b3d');
+  g.fillStyle = bar; g.fillRect(44, 340, 108, 6);
+  g.restore();
+
+  // русский подзаголовок
+  g.font = '800 26px "Segoe UI",system-ui,sans-serif';
+  g.letterSpacing = '1px';
+  stroked(g, 'ДО ЯДРА ЗЕМЛИ', 43, 386, '#ffffff', 7, 12);
+  g.letterSpacing = '0px';
+}
+
+async function buildIcon() {
+  const cv = document.getElementById('icon'), g = cv.getContext('2d');
+  const S = 512;
+  const art = await load('src/icon-art.png');
+  // квадрат в квадрат, без полей и скруглений — прямое требование площадки
+  const side = Math.min(art.width, art.height);
+  g.drawImage(art, (art.width - side) / 2, (art.height - side) / 2, side, side, 0, 0, S, S);
+}
+
+document.getElementById('save').addEventListener('click', async () => {
+  const log = document.getElementById('log'); log.textContent = '';
+  for (const [id, name] of [['cover', 'cover-final-800x470.png'], ['icon', 'icon-final-512.png']]) {
+    const blob = await new Promise(r => document.getElementById(id).toBlob(r, 'image/png'));
+    const res = await fetch('/shot?name=' + name, { method: 'POST', body: blob });
+    log.textContent += (await res.text()) + '\n';
+  }
+});
+
+(async () => { await buildCover(); await buildIcon(); })();
+</script>
+</body>
+</html>
