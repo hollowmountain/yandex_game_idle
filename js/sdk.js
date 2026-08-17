@@ -143,9 +143,19 @@ const SDK = (() => {
     try { return ysdk.environment.i18n.lang; } catch (e) { return null; }
   }
 
+  // Полный сброс прогресса. Нужен для отладки: без него испорченное
+  // сохранение не выкинуть, потому что игра честно сохраняется при уходе
+  // со страницы и тут же восстанавливает его обратно.
+  async function wipe() {
+    try { localStorage.removeItem(SAVE_KEY); } catch (e) {}
+    if (player) {
+      try { await player.setData({ save: null }, true); } catch (e) {}
+    }
+  }
+
   return {
     init, ready, gameplayStart, gameplayStop,
-    save, load, interstitial, rewarded, lang,
+    save, load, wipe, interstitial, rewarded, lang,
     onPause(fn) { handlers.pause = fn; },
     onResume(fn) { handlers.resume = fn; },
     get available() { return available; },

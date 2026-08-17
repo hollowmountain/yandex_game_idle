@@ -36,6 +36,29 @@ while ($listener.IsListening) {
 
   try {
     $rawPath = [System.Uri]::UnescapeDataString($ctx.Request.Url.AbsolutePath)
+
+    # POST /shot?name=foo.png — сохранить кадр канваса на диск.
+    # Нужно для съёмки промо-скриншотов и для проверки картинки без глазного
+    # контакта с экраном: игра сама отдаёт кадр, сервер кладёт его в shots/.
+    if ($ctx.Request.HttpMethod -eq 'POST' -and $rawPath -eq '/shot') {
+      $name = $ctx.Request.QueryString['name']
+      if (-not $name) { $name = 'shot.png' }
+      $name = [System.IO.Path]::GetFileName($name)
+      $dir = Join-Path $rootFull 'shots'
+      if (-not (Test-Path $dir)) { New-Item -ItemType Directory -Path $dir | Out-Null }
+      $ms = New-Object System.IO.MemoryStream
+      $ctx.Request.InputStream.CopyTo($ms)
+      [System.IO.File]::WriteAllBytes((Join-Path $dir $name), $ms.ToArray())
+      $ok = [System.Text.Encoding]::UTF8.GetBytes('saved ' + $name)
+      $ctx.Response.StatusCode = 200
+      $ctx.Response.ContentType = 'text/plain; charset=utf-8'
+      $ctx.Response.ContentLength64 = $ok.Length
+      $ctx.Response.OutputStream.Write($ok, 0, $ok.Length)
+      Write-Host "200 POST /shot -> shots\$name ($($ms.Length) bytes)"
+      $ctx.Response.OutputStream.Close(); $ctx.Response.Close()
+      continue
+    }
+
     if ($rawPath -eq '/') { $rawPath = '/index.html' }
     $candidate = Join-Path $rootFull ($rawPath.TrimStart('/') -replace '/', '\')
 

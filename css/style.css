@@ -80,9 +80,11 @@ button { font-family: inherit; color: inherit; border: 0; background: none; curs
 .progress i { display: block; height: 100%; width: 0; background: linear-gradient(90deg, var(--accent-2), var(--accent)); transition: width .25s ease; }
 
 /* ---------- tools ---------- */
+/* Кнопки стоят ниже всего HUD. На 74px верхняя из них наезжала на строку
+   со скоростью проходки и перекрывала её. */
 #tools {
   position: absolute; z-index: 3;
-  top: calc(var(--safe-top) + 74px); right: 12px;
+  top: calc(var(--safe-top) + 108px); right: 12px;
   display: flex; flex-direction: column; gap: 8px;
 }
 .tool {

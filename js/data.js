@@ -21,10 +21,10 @@ const DATA = (() => {
     { from: 2.4e4, value: 1.6e3, hard: 145,   color: '#b08a2e', dark: '#7d6120', ru: 'Золото',    en: 'Gold'       },
     { from: 7e4,   value: 7.5e3, hard: 400,   color: '#3f7ca8', dark: '#2b5875', ru: 'Кристаллы', en: 'Crystals'   },
     { from: 1.9e5, value: 3.4e4, hard: 1.1e3, color: '#3a2b4a', dark: '#281d33', ru: 'Обсидиан',  en: 'Obsidian'   },
-    { from: 4.8e5, value: 1.6e5, hard: 5e3,   color: '#a83c1e', dark: '#752915', ru: 'Магма',     en: 'Magma'      },
-    { from: 1.1e6, value: 3e6,   hard: 4.5e4, color: '#c2532a', dark: '#8a3417', ru: 'Мантия',    en: 'Mantle'     },
-    { from: 2.4e6, value: 1.4e8, hard: 1.2e6, color: '#e07a2f', dark: '#a1501a', ru: 'Внешнее ядро', en: 'Outer Core' },
-    { from: 4.5e6, value: 3.5e9, hard: 1.6e7, color: '#ffb347', dark: '#c47a1e', ru: 'Оболочка ядра', en: 'Core Shell' }
+    { from: 4.8e5, value: 1.6e5, hard: 5e3,   color: '#a83c1e', dark: '#752915', hot: .45, ru: 'Магма',     en: 'Magma'      },
+    { from: 1.1e6, value: 3e6,   hard: 4.5e4, color: '#c2532a', dark: '#8a3417', hot: .65, ru: 'Мантия',    en: 'Mantle'     },
+    { from: 2.4e6, value: 1.4e8, hard: 1.2e6, color: '#e07a2f', dark: '#a1501a', hot: .85, ru: 'Внешнее ядро', en: 'Outer Core' },
+    { from: 4.5e6, value: 3.5e9, hard: 1.6e7, color: '#ffb347', dark: '#c47a1e', hot: 1,   ru: 'Оболочка ядра', en: 'Core Shell' }
   ];
 
   // Реальный радиус Земли — до центра планеты ровно столько.

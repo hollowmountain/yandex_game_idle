@@ -58,7 +58,7 @@
       if (sinceAd >= AD_EVERY && !SDK.busy) { sinceAd = 0; SDK.interstitial(); }
     }
 
-    Render.draw(State.raw.depth, dt);
+    Render.draw(State.raw.depth, dt, State.rate());
   }
 
   // Тяжёлый DOM обновляем 5 раз в секунду, а не каждый кадр
@@ -115,6 +115,8 @@
     UI.init({ onSmelt: doSmelt, onWatchBoost: doWatchBoost });
 
     await SDK.init();
+
+    if (/[?&]reset/.test(location.search)) await SDK.wipe();
 
     const saved = await SDK.load();
     if (saved) State.hydrate(saved);
