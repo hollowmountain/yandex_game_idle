@@ -7,6 +7,24 @@
 <meta name="theme-color" content="#0d0b0f">
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%230d0b0f'/%3E%3Cpath d='M16 6 L23 22 L16 27 L9 22 Z' fill='%23ffa62b'/%3E%3C/svg%3E">
 <link rel="stylesheet" href="css/style.css">
+
+<!-- Yandex Games SDK.
+     Путь относительный и именно такой: платформа отдаёт загрузчик по /sdk.js
+     со своего домена. Прежний https://yandex.ru/games/sdk/v2 считается старым
+     лоадером, отладочная панель метит его как IF.
+     Тег стоит прямо в разметке, а не подключается из кода по условию:
+     проверка платформы смотрит на встраивание SDK, и любая ветвистая логика
+     читается ею как «SDK не встроен». -->
+<script>
+  // Промис резолвится раньше, чем загрузится js/sdk.js, поэтому результат
+  // загрузки складываем в глобальную переменную, а не в обработчик.
+  window.__ysdkLoaded = new Promise(function (resolve) {
+    window.__ysdkResolve = resolve;
+  });
+</script>
+<script async src="/sdk.js"
+        onload="window.__ysdkResolve(true)"
+        onerror="window.__ysdkResolve(false)"></script>
 </head>
 <body>
 

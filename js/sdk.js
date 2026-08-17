@@ -1,11 +1,17 @@
 // Обёртка над SDK Яндекс Игр.
-// Если SDK недоступен (локальный запуск, Poki, CrazyGames, itch) — всё
-// молча деградирует в заглушки, и игра продолжает работать.
+//
+// Сам загрузчик подключён тегом <script async src="/sdk.js"> прямо в
+// index.html — так требует платформа, и так его видит автопроверка. Здесь
+// только ожидание результата и работа с уже загруженным YaGames.
+//
+// Вне Яндекса (локальный запуск, другие порталы) файл /sdk.js не отдаётся,
+// onerror отрабатывает, YaGames не появляется — и всё молча деградирует в
+// заглушки, игра продолжает работать.
 const SDK = (() => {
 
-  const SDK_URL = 'https://yandex.ru/games/sdk/v2';
   const SAVE_KEY = 'deepcore_save_v1';
   const AD_MIN_GAP = 180000; // 3 минуты — минимальный интервал между рекламой
+  const LOAD_TIMEOUT = 8000;
 
   let ysdk = null;
   let player = null;
@@ -15,34 +21,25 @@ const SDK = (() => {
 
   const handlers = { pause: () => {}, resume: () => {} };
 
-  function loadScript(url, timeout = 6000) {
-    return new Promise((resolve, reject) => {
-      const s = document.createElement('script');
-      const timer = setTimeout(() => reject(new Error('sdk timeout')), timeout);
-      s.src = url;
-      s.onload = () => { clearTimeout(timer); resolve(); };
-      s.onerror = () => { clearTimeout(timer); reject(new Error('sdk failed')); };
-      document.head.appendChild(s);
-    });
-  }
-
-  // SDK Яндекса грузим только когда мы действительно внутри Яндекс Игр.
-  // На Poki, CrazyGames, itch и на локальной машине он не просто бесполезен —
-  // он сыплет необработанными ошибками в консоль, а это причина отказа модерации.
-  function onYandex() {
-    const q = location.search;
-    if (/[?&]nosdk/.test(q)) return false;
-    if (/[?&]ysdk/.test(q)) return true;
-    const host = location.hostname || '';
-    const ref = document.referrer || '';
-    return /(^|\.)yandex\.|(^|\.)ya\.ru|games\.s3|yandex\.net/.test(host) ||
-           /(^|\/\/)([\w-]+\.)*yandex\.|ya\.ru/.test(ref);
+  // Ждём загрузчик, но не бесконечно: если тег не отработал ни onload, ни
+  // onerror, игра обязана стартовать всё равно, а не висеть на чёрном экране.
+  function waitLoader() {
+    const pending = window.__ysdkLoaded || Promise.resolve(false);
+    return Promise.race([
+      pending,
+      new Promise(resolve => setTimeout(() => resolve(false), LOAD_TIMEOUT))
+    ]);
   }
 
   async function init() {
-    if (!onYandex()) { available = false; return false; }
+    // Сбрасываем ссылки на случай повторного вызова: иначе после неудачной
+    // инициализации методы продолжали бы дёргать объект от прошлой попытки.
+    ysdk = null; player = null; available = false;
+
+    if (/[?&]nosdk/.test(location.search)) return false;
     try {
-      await loadScript(SDK_URL);
+      await waitLoader();
+      if (!window.YaGames) return false;
       ysdk = await window.YaGames.init();
       available = true;
       try {
