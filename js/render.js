@@ -15,7 +15,7 @@ const Render = (() => {
   const SCREENS_PER_SEC = 0.28; // цель: экран породы примерно за 3.5 секунды
 
   let cv, ctx, W = 0, H = 0, dpr = 1;
-  let bandTop = 0, bandBottom = 0, drillY = 0, layoutAge = 99;
+  let bandTop = 0, bandBottom = 0, drillY = 0, colW = 0, layoutAge = 99;
   let windowM = 60;
   let time = 0;
 
@@ -350,10 +350,17 @@ const Render = (() => {
   function relayout() {
     const hud = document.getElementById('hud');
     const panel = document.getElementById('panel');
+    const app = document.getElementById('app');
     bandTop = hud ? hud.getBoundingClientRect().bottom : 0;
     bandBottom = panel ? panel.getBoundingClientRect().top : H;
     if (!(bandBottom > bandTop + 80)) { bandTop = 0; bandBottom = H; }
     drillY = bandTop + (bandBottom - bandTop) * 0.54;
+
+    // Шахта и бур меряются по колонке интерфейса, а не по всему канвасу:
+    // канвас на десктопе растянут во всё окно, и привязка к нему делала
+    // тоннель ниткой посреди огромного поля породы.
+    colW = app ? app.getBoundingClientRect().width : W;
+    if (!(colW > 100)) colW = W;
   }
 
   /* ---------- эффекты ---------- */
@@ -670,21 +677,35 @@ const Render = (() => {
     }
   }
 
+  // Ствол собирается на отдельном холсте и только потом переносится в кадр.
+  // Так к нему можно применить маску и растворить края в породе: рисуя прямо
+  // в кадр, ствол упирался в резкую вертикальную границу и читался как
+  // вырезанный прямоугольник, а не как пробитый в камне тоннель.
+  let shaftCv = null, shaftCtx = null, shaftW = 0, shaftH = 0;
+
   function drawShaft(topM, pxPerM) {
-    const sw = Math.min(W * 0.42, 190);
+    const sw = Math.min(colW * 0.46, 250);
     const sx = (W - sw) / 2;
+    const sh = Math.max(2, drillY);
 
-    // Пробитый ствол. Не чёрная дыра: к забою он теплеет от света бура,
-    // иначе верх экрана выглядит вырезанным прямоугольником.
-    const g = ctx.createLinearGradient(0, bandTop, 0, drillY);
-    g.addColorStop(0, rgba([14, 11, 17], 0.97));
-    g.addColorStop(0.65, rgba([26, 19, 22], 0.9));
-    g.addColorStop(1, rgba([54, 34, 24], 0.82));
-    ctx.fillStyle = g;
-    ctx.fillRect(sx, 0, sw, drillY);
+    const cw = Math.ceil(sw * dpr), ch = Math.ceil(sh * dpr);
+    if (!shaftCv || shaftW !== cw || shaftH !== ch) {
+      shaftCv = document.createElement('canvas');
+      shaftCv.width = cw; shaftCv.height = ch;
+      shaftW = cw; shaftH = ch;
+      shaftCtx = shaftCv.getContext('2d');
+    }
+    const g = shaftCtx;
+    g.setTransform(dpr, 0, 0, dpr, 0, 0);
+    g.clearRect(0, 0, sw, sh);
 
-    ctx.save();
-    ctx.beginPath(); ctx.rect(sx, 0, sw, drillY); ctx.clip();
+    // Не чёрная дыра: к забою ствол теплеет от света бура.
+    const vg = g.createLinearGradient(0, 0, 0, sh);
+    vg.addColorStop(0, rgba([14, 11, 17], 0.97));
+    vg.addColorStop(0.65, rgba([26, 19, 22], 0.9));
+    vg.addColorStop(1, rgba([54, 34, 24], 0.84));
+    g.fillStyle = vg;
+    g.fillRect(0, 0, sw, sh);
 
     const every = windowM / 3;
     const first = Math.ceil(topM / every) * every;
@@ -692,54 +713,76 @@ const Render = (() => {
     // фактура стен
     for (let m = first - every * 3; m < topM + windowM; m += every / 4) {
       const y = (m - topM) * pxPerM;
-      if (y < -20 || y > drillY) continue;
+      if (y < -20 || y > sh) continue;
       const h = hash2(Math.round(m * 7), 3);
-      ctx.fillStyle = rgba([0, 0, 0], 0.25 + h * 0.3);
+      g.fillStyle = rgba([0, 0, 0], 0.25 + h * 0.3);
       const w = 4 + h * 12;
-      ctx.fillRect(sx, y, w, 6 + h * 10);
-      ctx.fillRect(sx + sw - w, y + 5, w, 5 + h * 9);
+      g.fillRect(0, y, w, 6 + h * 10);
+      g.fillRect(sw - w, y + 5, w, 5 + h * 9);
     }
 
-    const edge = 18;
-    const le = ctx.createLinearGradient(sx, 0, sx + edge, 0);
-    le.addColorStop(0, rgba([0, 0, 0], 0.6)); le.addColorStop(1, rgba([0, 0, 0], 0));
-    ctx.fillStyle = le; ctx.fillRect(sx, 0, edge, drillY);
-    const re = ctx.createLinearGradient(sx + sw, 0, sx + sw - edge, 0);
-    re.addColorStop(0, rgba([0, 0, 0], 0.6)); re.addColorStop(1, rgba([0, 0, 0], 0));
-    ctx.fillStyle = re; ctx.fillRect(sx + sw - edge, 0, edge, drillY);
-
-    ctx.fillStyle = rgba([255, 255, 255], 0.08);
-    ctx.fillRect(sx, 0, 1.5, drillY);
-    ctx.fillRect(sx + sw - 1.5, 0, 1.5, drillY);
+    const edge = 22;
+    const le = g.createLinearGradient(0, 0, edge, 0);
+    le.addColorStop(0, rgba([0, 0, 0], 0.55)); le.addColorStop(1, rgba([0, 0, 0], 0));
+    g.fillStyle = le; g.fillRect(0, 0, edge, sh);
+    const re = g.createLinearGradient(sw, 0, sw - edge, 0);
+    re.addColorStop(0, rgba([0, 0, 0], 0.55)); re.addColorStop(1, rgba([0, 0, 0], 0));
+    g.fillStyle = re; g.fillRect(sw - edge, 0, edge, sh);
 
     // Крепь. Шаг в метрах привязан к размеру кадра, поэтому на любой глубине
     // по экрану ползёт одинаковое их число — иначе на быстрых слоях
     // картинка превращается в мельтешение.
     for (let m = first; m < topM + windowM; m += every) {
       const y = (m - topM) * pxPerM;
-      if (y > drillY) break;
-      ctx.fillStyle = rgba([58, 46, 38], 0.92);
-      ctx.fillRect(sx + 3, y, sw - 6, 6);
-      ctx.fillStyle = rgba([96, 78, 62], 0.75);
-      ctx.fillRect(sx + 3, y, sw - 6, 1.6);
-      ctx.fillStyle = rgba([22, 17, 15], 0.92);
-      ctx.fillRect(sx + 6, y - 9, 6, 9);
-      ctx.fillRect(sx + sw - 12, y - 9, 6, 9);
+      if (y > sh) break;
+      g.fillStyle = rgba([58, 46, 38], 0.92);
+      g.fillRect(3, y, sw - 6, 6);
+      g.fillStyle = rgba([96, 78, 62], 0.75);
+      g.fillRect(3, y, sw - 6, 1.6);
+      g.fillStyle = rgba([22, 17, 15], 0.92);
+      g.fillRect(6, y - 9, 6, 9);
+      g.fillRect(sw - 12, y - 9, 6, 9);
     }
 
     // труба вдоль стены — задаёт вертикальный ритм и масштаб
-    ctx.fillStyle = rgba([40, 34, 44], 0.85);
-    ctx.fillRect(sx + 13, 0, 5, drillY);
-    ctx.fillStyle = rgba([120, 108, 130], 0.3);
-    ctx.fillRect(sx + 13, 0, 1.5, drillY);
+    g.fillStyle = rgba([40, 34, 44], 0.85);
+    g.fillRect(13, 0, 5, sh);
+    g.fillStyle = rgba([120, 108, 130], 0.3);
+    g.fillRect(13, 0, 1.5, sh);
     for (let m = first; m < topM + windowM; m += every / 2) {
       const y = (m - topM) * pxPerM;
-      if (y > drillY) break;
-      ctx.fillStyle = rgba([64, 55, 70], 0.9);
-      ctx.fillRect(sx + 11, y, 9, 4);
+      if (y > sh) break;
+      g.fillStyle = rgba([64, 55, 70], 0.9);
+      g.fillRect(11, y, 9, 4);
     }
 
-    ctx.restore();
+    // Маска. destination-in оставляет от ствола только то, что попало под
+    // градиент, поэтому боковины плавно уходят в ноль вместе со всем, что на
+    // них нарисовано, — и с крепью, и с трубой.
+    // Растворение должно смягчить кромку, а не съесть тоннель: на широком
+    // размытии от ствола оставалась еле заметная тень.
+    const fade = Math.min(sw * 0.15, 30) / sw;
+    g.globalCompositeOperation = 'destination-in';
+    const mg = g.createLinearGradient(0, 0, sw, 0);
+    mg.addColorStop(0, 'rgba(0,0,0,0)');
+    mg.addColorStop(fade, 'rgba(0,0,0,1)');
+    mg.addColorStop(1 - fade, 'rgba(0,0,0,1)');
+    mg.addColorStop(1, 'rgba(0,0,0,0)');
+    g.fillStyle = mg;
+    g.fillRect(0, 0, sw, sh);
+
+    // Низ тоже нельзя обрубать: у забоя ствол должен растворяться в породе,
+    // а не заканчиваться горизонтальной линией под буром.
+    g.globalCompositeOperation = 'destination-out';
+    const bf = Math.min(56, sh * 0.22);   // на низких экранах хвост короче
+    const bg = g.createLinearGradient(0, sh - bf, 0, sh);
+    bg.addColorStop(0, 'rgba(0,0,0,0)');
+    bg.addColorStop(1, 'rgba(0,0,0,1)');
+    g.fillStyle = bg;
+    g.fillRect(0, sh - bf, sw, bf);
+    g.globalCompositeOperation = 'source-over';
+
+    ctx.drawImage(shaftCv, 0, 0, cw, ch, sx, 0, sw, sh);
   }
 
   // Трос. Рисуется в экранных координатах от верхней кромки кадра, а не внутри
@@ -781,7 +824,9 @@ const Render = (() => {
   function drawDrill(hot) {
     const bob = Math.sin(time * 2.2) * 1.4;
     const y = drillY + recoil * 9 + bob;
-    const S = 1.55;
+    // Машина растёт вместе с колонкой: на телефоне множитель тот же 1.55,
+    // что и был, на десктопе бур перестаёт быть точкой в углу экрана.
+    const S = Math.max(1.55, Math.min(colW / 242, 2.15));
 
     drawCable(y - 36 * S);
 

@@ -176,7 +176,9 @@ button { font-family: inherit; color: inherit; border: 0; background: none; curs
 }
 .card-icon { font-size: 21px; text-align: center; }
 .card-name { font-size: 14px; font-weight: 600; }
-.card-desc { font-size: 11px; color: var(--dim); margin-top: 1px; }
+/* Описание обязано быть отдельной строкой, иначе название и скорость
+   слипаются в «Ручной бур+0.3 м/с». */
+.card-desc { display: block; font-size: 11px; color: var(--dim); margin-top: 1px; }
 .card-cost { font-size: 13px; font-weight: 700; color: var(--accent); font-variant-numeric: tabular-nums; white-space: nowrap; }
 .card:disabled .card-cost { color: var(--bad); }
 .card-count {
@@ -269,11 +271,17 @@ button { font-family: inherit; color: inherit; border: 0; background: none; curs
   /* Шахта тянется на всю ширину окна, а интерфейс остаётся колонкой по центру.
      Раньше канвас обрезался по той же колонке, и по бокам зияли чёрные поля —
      читалось как недоделанная вёрстка, а не как задумка. */
-  #app { max-width: 480px; margin: 0 auto; }
+  /* Ширина колонки в долях окна, а не фиксированные пиксели: на ноутбуке и
+     планшете 480px выглядели узкой полоской посреди пустоты. Потолок нужен,
+     чтобы на широком мониторе строка карточки не растянулась в простыню, где
+     иконка и цена разъезжаются по разным краям. */
+  #app { max-width: clamp(430px, 58vw, 680px); margin: 0 auto; }
   #shaft { max-width: none; left: 0; transform: none; }
-  #tools { right: calc(50% - 240px + 12px); }
+  /* #app — контейнер позиционирования, поэтому кнопки сами держатся его края
+     при любой ширине; прежний расчёт был привязан к жёстким 480px. */
+  #tools { right: 12px; }
   #panel {
-    max-height: 46vh;
+    max-height: 50vh;
     border-left: 1px solid var(--line);
     border-right: 1px solid var(--line);
     box-shadow: 0 -18px 40px rgba(0,0,0,.55);
