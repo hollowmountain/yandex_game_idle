@@ -354,7 +354,10 @@ const Render = (() => {
     bandTop = hud ? hud.getBoundingClientRect().bottom : 0;
     bandBottom = panel ? panel.getBoundingClientRect().top : H;
     if (!(bandBottom > bandTop + 80)) { bandTop = 0; bandBottom = H; }
-    drillY = bandTop + (bandBottom - bandTop) * 0.54;
+    // Бур ниже середины видимой полосы: над ним пройденный ствол, под ним
+    // забой. На 0.54 машина висела в верхней трети экрана и читалась как
+    // случайно всплывшая, а не как то, за чем следит игрок.
+    drillY = bandTop + (bandBottom - bandTop) * 0.6;
 
     // Шахта и бур меряются по колонке интерфейса, а не по всему канвасу:
     // канвас на десктопе растянут во всё окно, и привязка к нему делала
@@ -720,7 +723,7 @@ const Render = (() => {
     // но теплеет именно эта порода, а не абстрактный бурый.
     const deep = mix(layer.dark, [0, 0, 0], 0.8);
     const midc = mix(layer.dark, [0, 0, 0], 0.62);
-    const warm = mix(mix(layer.dark, [0, 0, 0], 0.42), [140, 84, 46], 0.5);
+    const warm = mix(mix(layer.dark, [0, 0, 0], 0.42), [150, 92, 50], 0.26);
     const vg = g.createLinearGradient(0, 0, 0, sh);
     vg.addColorStop(0, rgba(deep, 0.97));
     vg.addColorStop(0.62, rgba(midc, 0.93));
@@ -1041,8 +1044,11 @@ const Render = (() => {
     drawRock(topM, pxPerM);
     drawShaft(topM, pxPerM, layer);
 
-    const lg = ctx.createRadialGradient(W / 2, drillY + 20, 0, W / 2, drillY + 20, W * 0.6);
-    lg.addColorStop(0, rgba([255, 178, 92], 0.2 + glow * 0.16));
+    // Радиус света привязан к стволу, а не к ширине окна: на широком мониторе
+    // ореол разрастался на пол-экрана и замыливал породу тёплой дымкой.
+    const lr = shaftWidth() * 2.4;
+    const lg = ctx.createRadialGradient(W / 2, drillY + 20, 0, W / 2, drillY + 20, lr);
+    lg.addColorStop(0, rgba([255, 178, 92], 0.17 + glow * 0.16));
     lg.addColorStop(1, rgba([255, 150, 60], 0));
     ctx.fillStyle = lg;
     ctx.fillRect(0, 0, W, H);
