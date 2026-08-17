@@ -35,9 +35,13 @@
 
   /* ---------- сохранение ---------- */
 
+  // В витринном режиме сохраняться нельзя: иначе один открытый скриншотный
+  // адрес затрёт автосохранением настоящий прогресс игрока.
+  const DEMO_MODE = /[?&]demo=\d/.test(location.search);
+
   let saving = false;
   async function save() {
-    if (saving) return;
+    if (DEMO_MODE || saving) return;
     saving = true;
     try { await SDK.save(State.serialize()); } finally { saving = false; }
   }
@@ -109,6 +113,33 @@
     else { SDK.gameplayStart(); last = performance.now(); }
   }
 
+  /* ---------- витринные состояния ---------- */
+
+  // Пресеты для съёмки промо-скриншотов: ?demo=1..5. Иначе, чтобы снять кадр
+  // в магме, пришлось бы честно доигрывать до неё полчаса. Прогресс при этом
+  // не сохраняется — состояние живёт только до перезагрузки.
+  const DEMOS = {
+    1: { depth: 210,    ore: 340,   drills: { auger: 8 } },
+    2: { depth: 2600,   ore: 4.1e4, drills: { auger: 22, jack: 15, exca: 6 } },
+    3: { depth: 92000,  ore: 3.8e7, drills: { auger: 34, jack: 28, exca: 22, plasma: 16, borer: 9, grav: 3 } },
+    4: { depth: 620000, ore: 8.4e9, drills: { auger: 40, jack: 34, exca: 28, plasma: 21, borer: 14, grav: 9, anni: 4 } },
+    5: { depth: 92000,  ore: 3.8e7, drills: { auger: 34, jack: 28, exca: 22, plasma: 16, borer: 9, grav: 3 }, tab: 'upgrades',
+         upgrades: { click: 7, speed: 5, value: 4 } }
+  };
+
+  function applyDemo(n) {
+    const d = DEMOS[n];
+    if (!d) return null;
+    State.hydrate(State.fresh());
+    const s = State.raw;
+    s.depth = d.depth;
+    s.ore = d.ore;
+    s.drills = Object.assign({}, d.drills);
+    s.upgrades = Object.assign({}, d.upgrades || {});
+    State.grantBoost();
+    return d;
+  }
+
   /* ---------- запуск ---------- */
 
   async function boot() {
@@ -120,6 +151,7 @@
     if (/[?&]reset/.test(location.search)) await SDK.wipe();
 
     const saved = await SDK.load();
+    const demo = /[?&]demo=(\d)/.exec(location.search);
     if (saved) State.hydrate(saved);
 
     I18N.set(State.raw.lang || I18N.detect(SDK.lang()));
@@ -163,7 +195,10 @@
     });
     window.addEventListener('pagehide', save);
 
+    const shown = demo ? applyDemo(+demo[1]) : null;
+
     UI.relabel();
+    if (shown && shown.tab) UI.switchTab(shown.tab);
     UI.bootDone();
     SDK.ready();          // платформе: игра готова, можно играть
     SDK.gameplayStart();
@@ -172,7 +207,7 @@
     // игроку показывают уже заработанное и дают удвоить. Смотрит он по своей
     // воле и ради очевидной выгоды, а это и есть условие высокой ставки за
     // просмотр и отсутствия вреда для удержания.
-    if (offline && offline.ore > 0) {
+    if (offline && offline.ore > 0 && !DEMO_MODE) {
       const gained = offline.ore;
       UI.modal(
         I18N.t('welcome_title'),
