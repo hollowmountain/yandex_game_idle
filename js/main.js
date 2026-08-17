@@ -9,6 +9,7 @@
   let last = 0;
   let sinceSave = 0;
   let sinceAd = 0;
+  let adPending = false;   // время пришло, ждём подходящий момент
 
   /* ---------- звук ---------- */
   const Sound = (() => {
@@ -29,7 +30,12 @@
     }
     return {
       dig: () => ping(150 + Math.random() * 60, 0.07),
-      buy: () => ping(560, 0.13)
+      buy: () => ping(560, 0.13),
+      // Требование платформы: звук замолкает при потере фокуса вкладки и на
+      // время рекламного ролика. Одних коротких сигналов мало — проверяют
+      // состояние аудиоконтекста, поэтому глушим его целиком.
+      suspend() { try { if (actx && actx.state === 'running') actx.suspend(); } catch (e) {} },
+      resume()  { try { if (actx && actx.state === 'suspended') actx.resume(); } catch (e) {} }
     };
   })();
 
@@ -59,7 +65,9 @@
       sinceAd += dt * 1000;
 
       if (sinceSave >= SAVE_EVERY) { sinceSave = 0; save(); }
-      if (sinceAd >= AD_EVERY && !SDK.busy) { sinceAd = 0; SDK.interstitial(); }
+      // Таймер только взводит показ, но не показывает: реклама обязана
+      // появляться в логической паузе, а не поверх копания.
+      if (sinceAd >= AD_EVERY) { sinceAd = 0; adPending = true; }
     }
 
     Render.draw(State.raw.depth, dt, State.rate());
@@ -70,6 +78,17 @@
     UI.refreshHud();
     UI.refreshBoosts();
     UI.refreshPanel();
+  }
+
+  /* ---------- реклама в паузах ---------- */
+
+  // Логическая пауза — это момент, когда игрок и так оторвался от копания:
+  // закрыл окно, вернулся из паузы, переплавил ядро. Показывать полноэкранную
+  // рекламу посреди активной игры платформа прямо запрещает.
+  function adAtBreak() {
+    if (!adPending || SDK.busy || paused) return;
+    adPending = false;
+    SDK.interstitial();
   }
 
   /* ---------- действия ---------- */
@@ -109,8 +128,17 @@
     if (manual) manualPause = on;
     paused = on || manualPause;
     UI.el['btn-pause'].textContent = paused ? '▶' : '⏸';
-    if (paused) { SDK.gameplayStop(); save(); }
-    else { SDK.gameplayStart(); last = performance.now(); }
+    if (paused) {
+      SDK.gameplayStop();
+      Sound.suspend();      // вкладка ушла из фокуса или идёт ролик — звука быть не должно
+      save();
+    } else {
+      SDK.gameplayStart();
+      Sound.resume();
+      last = performance.now();
+      // Возврат в игру — это уже пройденная пауза, здесь реклама уместна.
+      adAtBreak();
+    }
   }
 
   /* ---------- витринные состояния ---------- */
@@ -144,7 +172,12 @@
 
   async function boot() {
     Render.init();
-    UI.init({ onSmelt: doSmelt, onWatchBoost: doWatchBoost, onBuy: () => Sound.buy() });
+    UI.init({
+      onSmelt: doSmelt,
+      onWatchBoost: doWatchBoost,
+      onBuy: () => Sound.buy(),
+      onModalClose: adAtBreak
+    });
 
     await SDK.init();
 

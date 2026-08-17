@@ -7,6 +7,7 @@ const UI = (() => {
   let onSmelt = () => {};
   let onWatchBoost = () => {};
   let onBuy = () => {};
+  let onModalClose = () => {};
   let onDoubleOffline = null;
 
   // Карточки живут между кадрами и обновляются по месту. Пересобирать их на
@@ -21,6 +22,7 @@ const UI = (() => {
     onSmelt = hooks.onSmelt;
     onWatchBoost = hooks.onWatchBoost;
     onBuy = hooks.onBuy || (() => {});
+    onModalClose = hooks.onModalClose || (() => {});
 
     ['v-depth','v-ore','v-layer','v-rate','v-progress','v-clickpower',
      'boosts','tab-drills','tab-upgrades','tab-core','toasts',
@@ -303,8 +305,12 @@ const UI = (() => {
   }
 
   function closeModal() {
+    const wasOpen = !el.modal.hidden;
     el.modal.hidden = true;
     onDoubleOffline = null;
+    // Закрытие окна — естественная пауза в игре, о ней сообщаем наружу:
+    // именно в такие моменты платформа разрешает полноэкранную рекламу.
+    if (wasOpen) onModalClose();
   }
 
   function bootDone() {
