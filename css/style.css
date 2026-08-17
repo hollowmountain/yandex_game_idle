@@ -76,8 +76,20 @@ button { font-family: inherit; color: inherit; border: 0; background: none; curs
 .stat-value.accent { color: var(--accent); }
 .layer-name { font-size: 13px; color: var(--dim); }
 .rate { font-size: 13px; color: var(--dim); font-variant-numeric: tabular-nums; }
-.progress { margin-top: 8px; height: 3px; background: var(--line); border-radius: 2px; overflow: hidden; }
+.progress { position: relative; margin-top: 8px; height: 4px; background: var(--line); border-radius: 2px; overflow: hidden; }
 .progress i { display: block; height: 100%; width: 0; background: linear-gradient(90deg, var(--accent-2), var(--accent)); transition: width .25s ease; }
+/* бегущий блик по заполненной части — движение приковывает взгляд к прогрессу */
+.progress::after {
+  content: ''; position: absolute; inset: 0;
+  background: linear-gradient(90deg, transparent, rgba(255,255,255,.5), transparent);
+  transform: translateX(-100%);
+  animation: sheen 2.6s ease-in-out infinite;
+}
+@keyframes sheen { 0% { transform: translateX(-100%); } 55%,100% { transform: translateX(220%); } }
+
+/* счётчик глубины подпрыгивает на круглых отметках */
+.stat-value.pop { animation: pop .4s cubic-bezier(.2,1.6,.4,1); }
+@keyframes pop { 0% { transform: scale(1); } 40% { transform: scale(1.16); } 100% { transform: scale(1); } }
 
 /* ---------- tools ---------- */
 /* Кнопки стоят ниже всего HUD. На 74px верхняя из них наезжала на строку
@@ -107,7 +119,16 @@ button { font-family: inherit; color: inherit; border: 0; background: none; curs
   background: rgba(255,166,43,.12); border: 1px solid rgba(255,166,43,.35);
   font-size: 12px; font-weight: 600; color: var(--accent);
 }
-.boost.active { background: rgba(74,217,145,.12); border-color: rgba(74,217,145,.4); color: var(--good); }
+.boost.active { background: rgba(74,217,145,.12); border-color: rgba(74,217,145,.4); color: var(--good); animation: none; }
+/* Пока буст не взят — плашка дышит. Это единственное предложение рекламы в
+   игре, и оно должно быть заметным, оставаясь при этом полностью
+   добровольным: реклама за вознаграждение по правилам платформы
+   показывается только по осознанному нажатию. */
+.boost:not(.active) { animation: breathe 2.4s ease-in-out infinite; }
+@keyframes breathe {
+  0%,100% { background: rgba(255,166,43,.10); border-color: rgba(255,166,43,.3); }
+  50%     { background: rgba(255,166,43,.22); border-color: rgba(255,166,43,.65); }
+}
 
 /* ---------- panel ---------- */
 #panel {
@@ -135,6 +156,24 @@ button { font-family: inherit; color: inherit; border: 0; background: none; curs
   text-align: left; width: 100%;
 }
 .card:disabled { opacity: .42; }
+/* Доступная покупка должна бросаться в глаза сама, без чтения цифр —
+   это главный источник «есть что нажать» в айдлере. */
+.card.can {
+  border-color: rgba(255,166,43,.5);
+  background: linear-gradient(180deg, rgba(255,166,43,.11), var(--panel-2) 70%);
+}
+.card.can .card-cost { color: var(--good); }
+.card.bought { animation: bought .32s ease-out; }
+@keyframes bought {
+  0%   { transform: scale(1);    box-shadow: 0 0 0 0 rgba(255,166,43,.6); }
+  35%  { transform: scale(.975); }
+  100% { transform: scale(1);    box-shadow: 0 0 0 15px rgba(255,166,43,0); }
+}
+.card.fresh { animation: fresh 1.5s ease-out 2; }
+@keyframes fresh {
+  0%,100% { border-color: var(--line); }
+  50%     { border-color: var(--accent); }
+}
 .card-icon { font-size: 21px; text-align: center; }
 .card-name { font-size: 14px; font-weight: 600; }
 .card-desc { font-size: 11px; color: var(--dim); margin-top: 1px; }
@@ -176,6 +215,43 @@ button { font-family: inherit; color: inherit; border: 0; background: none; curs
   background: var(--accent); color: #1a1013; font-weight: 800; letter-spacing: .06em;
 }
 
+/* Кнопка бонуса за рекламу. Выглядит как награда, а не как баннер: игрок
+   должен хотеть её нажать, поэтому она ярче обычной кнопки и живая. */
+#modal-bonus {
+  width: 100%; padding: 13px; margin-bottom: 9px; border-radius: 11px;
+  background: linear-gradient(135deg, var(--good), #2fae74);
+  color: #06231a; font-weight: 800; font-size: 14px; letter-spacing: .03em;
+  box-shadow: 0 0 0 0 rgba(74,217,145,.55);
+  animation: pulse 1.9s ease-out infinite;
+}
+@keyframes pulse {
+  0%   { box-shadow: 0 0 0 0 rgba(74,217,145,.5); }
+  70%  { box-shadow: 0 0 0 13px rgba(74,217,145,0); }
+  100% { box-shadow: 0 0 0 0 rgba(74,217,145,0); }
+}
+#modal-ok { background: var(--panel-2); color: var(--dim); font-weight: 700; }
+#modal-bonus[hidden] + #modal-ok { background: var(--accent); color: #1a1013; font-weight: 800; }
+
+/* ---------- toasts ---------- */
+#toasts {
+  position: fixed; z-index: 40; left: 0; right: 0;
+  top: calc(var(--safe-top) + 120px);
+  display: flex; flex-direction: column; align-items: center; gap: 6px;
+  pointer-events: none;
+}
+.toast {
+  display: flex; align-items: center; gap: 8px;
+  padding: 8px 14px; border-radius: 999px;
+  background: rgba(31,27,38,.94); border: 1px solid var(--accent);
+  font-size: 12.5px; font-weight: 700; color: var(--text);
+  box-shadow: 0 6px 20px rgba(0,0,0,.5);
+  animation: toastIn .3s cubic-bezier(.2,1.4,.4,1) both;
+}
+.toast.out { animation: toastOut .32s ease-in forwards; }
+.toast b { color: var(--accent); }
+@keyframes toastIn  { from { opacity: 0; transform: translateY(-14px) scale(.92); } }
+@keyframes toastOut { to   { opacity: 0; transform: translateY(-10px) scale(.96); } }
+
 /* ---------- floaters ---------- */
 .floater {
   position: fixed; z-index: 4; pointer-events: none;
@@ -190,8 +266,24 @@ button { font-family: inherit; color: inherit; border: 0; background: none; curs
 
 /* ---------- desktop ---------- */
 @media (min-width: 720px) {
-  #app { max-width: 460px; margin: 0 auto; border-left: 1px solid var(--line); border-right: 1px solid var(--line); }
-  #shaft { max-width: 460px; left: 50%; transform: translateX(-50%); }
-  #tools { right: calc(50% - 230px + 12px); }
-  #panel { max-height: 46vh; }
+  /* Шахта тянется на всю ширину окна, а интерфейс остаётся колонкой по центру.
+     Раньше канвас обрезался по той же колонке, и по бокам зияли чёрные поля —
+     читалось как недоделанная вёрстка, а не как задумка. */
+  #app { max-width: 480px; margin: 0 auto; }
+  #shaft { max-width: none; left: 0; transform: none; }
+  #tools { right: calc(50% - 240px + 12px); }
+  #panel {
+    max-height: 46vh;
+    border-left: 1px solid var(--line);
+    border-right: 1px solid var(--line);
+    box-shadow: 0 -18px 40px rgba(0,0,0,.55);
+  }
+  #hud { background: linear-gradient(180deg, rgba(13,11,15,.96) 55%, rgba(13,11,15,0)); }
+  /* затемнение к краям окна, чтобы центр читался как игровое поле */
+  #app::before {
+    content: ''; position: fixed; inset: 0; z-index: 1; pointer-events: none;
+    background:
+      linear-gradient(90deg, rgba(8,6,10,.85) 0%, rgba(8,6,10,0) 22%),
+      linear-gradient(270deg, rgba(8,6,10,.85) 0%, rgba(8,6,10,0) 22%);
+  }
 }

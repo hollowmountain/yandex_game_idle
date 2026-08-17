@@ -1,7 +1,8 @@
 // Состояние игры и все производные величины.
 const State = (() => {
 
-  const BOOST_MS = 4 * 3600 * 1000; // ×2 на 4 часа за просмотр рекламы
+  const BOOST_MS = 4 * 3600 * 1000;      // ×2 на 4 часа за просмотр рекламы
+  const BOOST_CAP_MS = 12 * 3600 * 1000; // но не больше 12 часов в запасе
 
   let s = fresh();
 
@@ -162,9 +163,12 @@ const State = (() => {
 
   /* ---------- бусты ---------- */
 
+  // Буст копится, но не бесконечно: без потолка игрок за один вечер набивает
+  // сутки ×2 и потом неделю не возвращается, а нам нужен ежедневный заход.
   function grantBoost() {
-    const base = Math.max(s.boostUntil, Date.now());
-    s.boostUntil = base + BOOST_MS;
+    const now = Date.now();
+    const base = Math.max(s.boostUntil, now);
+    s.boostUntil = Math.min(base + BOOST_MS, now + BOOST_CAP_MS);
   }
 
   const boostLeft = () => Math.max(0, s.boostUntil - Date.now());

@@ -86,6 +86,7 @@
     if (!State.smelt()) return;
     Sound.buy();
     save();
+    UI.resetLists();          // буров у игрока больше нет, список строим заново
     UI.modal(I18N.t('reset_title'), I18N.t('reset_text', { bonus }));
     UI.switchTab('drills');
     slowRefresh();
@@ -112,7 +113,7 @@
 
   async function boot() {
     Render.init();
-    UI.init({ onSmelt: doSmelt, onWatchBoost: doWatchBoost });
+    UI.init({ onSmelt: doSmelt, onWatchBoost: doWatchBoost, onBuy: () => Sound.buy() });
 
     await SDK.init();
 
@@ -167,11 +168,26 @@
     SDK.ready();          // платформе: игра готова, можно играть
     SDK.gameplayStart();
 
+    // Возвращение с накопленным офлайном — лучший момент предложить рекламу:
+    // игроку показывают уже заработанное и дают удвоить. Смотрит он по своей
+    // воле и ради очевидной выгоды, а это и есть условие высокой ставки за
+    // просмотр и отсутствия вреда для удержания.
     if (offline && offline.ore > 0) {
-      UI.modal(I18N.t('welcome_title'), I18N.t('welcome_text', {
-        depth: DATA.fmt(offline.depth),
-        ore: DATA.fmt(offline.ore)
-      }));
+      const gained = offline.ore;
+      UI.modal(
+        I18N.t('welcome_title'),
+        I18N.t('welcome_text', { depth: DATA.fmt(offline.depth), ore: DATA.fmt(gained) }),
+        {
+          label: '📺 ' + I18N.t('boost_offline', { amount: DATA.fmt(gained) }),
+          run: () => SDK.rewarded(() => {
+            State.raw.ore += gained;
+            Sound.buy();
+            save();
+            UI.refreshHud();
+            UI.toast('✅ +' + DATA.fmt(gained));
+          })
+        }
+      );
     }
 
     setInterval(slowRefresh, 200);

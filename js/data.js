@@ -12,19 +12,21 @@ const DATA = (() => {
   // Твёрдость растёт вместе с ценой метра: глубже — дороже руда, но и
   // медленнее проходка, и за счёт этого каждый слой стоит игроку сравнимого
   // времени, а каждый следующий бур снова ощущается нужным.
+  //   style — характер породы, по нему рендер выбирает способ рисования
+  //   vein  — цвет рудной жилы, вкраплений и осколков этого слоя
   const LAYERS = [
-    { from: 0,     value: 1,     hard: 1,     color: '#6b4f3a', dark: '#4c3728', ru: 'Почва',     en: 'Soil'       },
-    { from: 150,   value: 4,     hard: 2.6,   color: '#8a6240', dark: '#63462d', ru: 'Глина',     en: 'Clay'       },
-    { from: 600,   value: 17,    hard: 7,     color: '#63636e', dark: '#45454e', ru: 'Камень',    en: 'Stone'      },
-    { from: 2.2e3, value: 75,    hard: 19,    color: '#35353c', dark: '#232328', ru: 'Уголь',     en: 'Coal'       },
-    { from: 7.5e3, value: 340,   hard: 52,    color: '#8a5f4d', dark: '#5f4135', ru: 'Железо',    en: 'Iron'       },
-    { from: 2.4e4, value: 1.6e3, hard: 145,   color: '#b08a2e', dark: '#7d6120', ru: 'Золото',    en: 'Gold'       },
-    { from: 7e4,   value: 7.5e3, hard: 400,   color: '#3f7ca8', dark: '#2b5875', ru: 'Кристаллы', en: 'Crystals'   },
-    { from: 1.9e5, value: 3.4e4, hard: 1.1e3, color: '#3a2b4a', dark: '#281d33', ru: 'Обсидиан',  en: 'Obsidian'   },
-    { from: 4.8e5, value: 1.6e5, hard: 5e3,   color: '#a83c1e', dark: '#752915', hot: .45, ru: 'Магма',     en: 'Magma'      },
-    { from: 1.1e6, value: 3e6,   hard: 4.5e4, color: '#c2532a', dark: '#8a3417', hot: .65, ru: 'Мантия',    en: 'Mantle'     },
-    { from: 2.4e6, value: 1.4e8, hard: 1.2e6, color: '#e07a2f', dark: '#a1501a', hot: .85, ru: 'Внешнее ядро', en: 'Outer Core' },
-    { from: 4.5e6, value: 3.5e9, hard: 1.6e7, color: '#ffb347', dark: '#c47a1e', hot: 1,   ru: 'Оболочка ядра', en: 'Core Shell' }
+    { from: 0,     value: 1,     hard: 1,     style: 'soil',    color: '#6b4f3a', dark: '#4c3728', vein: '#a28a5c', ru: 'Почва',     en: 'Soil'       },
+    { from: 150,   value: 4,     hard: 2.6,   style: 'clay',    color: '#8a6240', dark: '#63462d', vein: '#c39a63', ru: 'Глина',     en: 'Clay'       },
+    { from: 600,   value: 17,    hard: 7,     style: 'stone',   color: '#63636e', dark: '#45454e', vein: '#a8b0bd', ru: 'Камень',    en: 'Stone'      },
+    { from: 2.2e3, value: 75,    hard: 19,    style: 'coal',    color: '#35353c', dark: '#1e1e23', vein: '#6f7a86', ru: 'Уголь',     en: 'Coal'       },
+    { from: 7.5e3, value: 340,   hard: 52,    style: 'metal',   color: '#8a5f4d', dark: '#5f4135', vein: '#e8a37a', ru: 'Железо',    en: 'Iron'       },
+    { from: 2.4e4, value: 1.6e3, hard: 145,   style: 'metal',   color: '#b08a2e', dark: '#7d6120', vein: '#ffd964', ru: 'Золото',    en: 'Gold'       },
+    { from: 7e4,   value: 7.5e3, hard: 400,   style: 'crystal', color: '#3f7ca8', dark: '#2b5875', vein: '#8fe3ff', ru: 'Кристаллы', en: 'Crystals'   },
+    { from: 1.9e5, value: 3.4e4, hard: 1.1e3, style: 'glass',   color: '#3a2b4a', dark: '#211830', vein: '#b98cff', ru: 'Обсидиан',  en: 'Obsidian'   },
+    { from: 4.8e5, value: 1.6e5, hard: 5e3,   style: 'magma',   color: '#a83c1e', dark: '#5e2010', vein: '#ffb257', hot: .45, ru: 'Магма',     en: 'Magma'      },
+    { from: 1.1e6, value: 3e6,   hard: 4.5e4, style: 'magma',   color: '#c2532a', dark: '#6d2812', vein: '#ffc46b', hot: .65, ru: 'Мантия',    en: 'Mantle'     },
+    { from: 2.4e6, value: 1.4e8, hard: 1.2e6, style: 'magma',   color: '#e07a2f', dark: '#8a3d12', vein: '#ffdf8f', hot: .85, ru: 'Внешнее ядро', en: 'Outer Core' },
+    { from: 4.5e6, value: 3.5e9, hard: 1.6e7, style: 'magma',   color: '#ffb347', dark: '#b06318', vein: '#fff3c4', hot: 1,   ru: 'Оболочка ядра', en: 'Core Shell' }
   ];
 
   // Реальный радиус Земли — до центра планеты ровно столько.
@@ -79,9 +81,17 @@ const DATA = (() => {
     return Math.ceil(upg.cost * Math.pow(upg.scale, level));
   }
 
-  // Компактная запись больших чисел: 1.2K, 8.4M, 3.1B...
-  const SUFFIX = ['', 'K', 'M', 'B', 'T', 'aa', 'ab', 'ac', 'ad', 'ae'];
+  // Компактная запись больших чисел: 1.2K, 8.4M, 3.1B, дальше aa, ab, ac...
+  //
+  // Суффиксов нужно с запасом. Цена бура растёт на 15% за копию, и к паре
+  // сотен «Пустотных буров» счёт идёт на 10^24 и выше — на коротком списке
+  // это вылезало как «1000ae» вместо нормального разряда.
+  const SUFFIX = ['', 'K', 'M', 'B', 'T'];
+  for (let i = 0; SUFFIX.length < 40; i++) {
+    SUFFIX.push(String.fromCharCode(97 + Math.floor(i / 26)) + String.fromCharCode(97 + i % 26));
+  }
   function fmt(n) {
+    if (typeof n !== 'number' || isNaN(n)) return '0';
     if (!isFinite(n)) return '∞';
     if (n < 1000) return (n < 10 && n % 1 !== 0) ? n.toFixed(1) : Math.floor(n).toString();
     const tier = Math.min(Math.floor(Math.log10(n) / 3), SUFFIX.length - 1);

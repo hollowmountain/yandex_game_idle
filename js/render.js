@@ -4,9 +4,9 @@
 // браузере. Это держит сборку в десятках килобайт и даёт мгновенную загрузку,
 // что напрямую бьётся с требованиями платформы к весу.
 //
-// Порода рисуется в два прохода. Первый — бесшовный тайл с гранёными
-// фасетками, он даёт мелкую фактуру камня. Второй — крупные пятна в мировых
-// координатах, которые ни к какой сетке не привязаны. Без второго прохода
+// Порода рисуется в два прохода. Первый — бесшовный тайл, свой для каждого
+// характера породы. Второй — крупные пятна, рудные жилы, друзы и пустоты в
+// мировых координатах, ни к какой сетке не привязанные. Без второго прохода
 // экран читается как обои: тайл в 256 пикселей укладывается по ширине три
 // раза, и глаз мгновенно ловит повтор.
 const Render = (() => {
@@ -19,9 +19,11 @@ const Render = (() => {
   let windowM = 60;
   let time = 0;
 
-  let chunks = [], sparks = [], dust = [];
-  let shake = 0, recoil = 0, glow = 0, bitAngle = 0;
-  let lastDepth = 0;
+  let chunks = [], sparks = [], dust = [], shards = [];
+  let shake = 0, recoil = 0, glow = 0, bitAngle = 0, flash = 0, flashCol = null;
+  let banner = null;
+  let lastDepth = 0, lastLayer = null;
+  let smashed = new Set();   // друзы, которые бур уже разбил
 
   const texCache = new Map();
   let blobDark = null, blobLight = null;
@@ -51,7 +53,7 @@ const Render = (() => {
     for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 16777619); }
     return h >>> 0;
   }
-  // Стабильный шум по двум целым — для пятен, привязанных к мировой сетке.
+  // Стабильный шум по двум целым — для всего, что привязано к мировой сетке.
   function hash2(x, y) {
     let h = Math.imul(x | 0, 374761393) ^ Math.imul(y | 0, 668265263);
     h = Math.imul(h ^ h >>> 13, 1274126177);
@@ -75,11 +77,233 @@ const Render = (() => {
     return c;
   }
 
+  /* ---------- текстуры породы ---------- */
+
+  // Каждая фигура рисуется девять раз со сдвигом на тайл, чтобы бесшовно
+  // переходить через край.
   function wrapped(x, y, fn) {
     for (let dx = -1; dx <= 1; dx++)
       for (let dy = -1; dy <= 1; dy++)
         fn(x + dx * TEX, y + dy * TEX);
   }
+
+  function facet(g, layer, rnd, px, py, rad, sides, elong) {
+    const n = sides || 5 + Math.floor(rnd() * 3);
+    const verts = [];
+    for (let k = 0; k < n; k++) {
+      const a = (k / n) * 6.2832 + (rnd() - 0.5) * 0.5;
+      const r = rad * (0.55 + rnd() * 0.65);
+      verts.push([Math.cos(a) * r, Math.sin(a) * r * (elong || 1)]);
+    }
+    const sh = rnd();
+    const col = sh < 0.55 ? mix(layer.color, layer.dark, 0.2 + sh * 1.1)
+                          : lighten(layer.color, (sh - 0.55) * 0.42);
+    wrapped(px, py, (ox, oy) => {
+      g.beginPath();
+      verts.forEach((v, k) => k ? g.lineTo(ox + v[0], oy + v[1]) : g.moveTo(ox + v[0], oy + v[1]));
+      g.closePath();
+      g.fillStyle = rgba(col, 0.8);
+      g.fill();
+      g.strokeStyle = rgba(layer.dark, 0.55);
+      g.lineWidth = 1.2;
+      g.stroke();
+      g.strokeStyle = rgba(lighten(layer.color, 0.45), 0.3);
+      g.lineWidth = 1;
+      g.beginPath();
+      g.moveTo(ox + verts[0][0], oy + verts[0][1]);
+      g.lineTo(ox + verts[1][0], oy + verts[1][1]);
+      g.stroke();
+    });
+  }
+
+  function crumbs(g, layer, rnd, n) {
+    for (let i = 0; i < (n || 300); i++) {
+      g.fillStyle = rgba(mix(layer.color, layer.dark, 0.4 + rnd() * 0.6), 0.3 + rnd() * 0.4);
+      const s = 0.8 + rnd() * 2;
+      wrapped(rnd() * TEX, rnd() * TEX, (ox, oy) => g.fillRect(ox, oy, s, s));
+    }
+  }
+
+  function flecks(g, layer, rnd, n) {
+    for (let i = 0; i < (n || 30); i++) {
+      g.fillStyle = rgba(layer.vein, 0.3 + rnd() * 0.45);
+      const s = 1.2 + rnd() * 2.4;
+      wrapped(rnd() * TEX, rnd() * TEX, (ox, oy) => g.fillRect(ox, oy, s, s * (0.5 + rnd())));
+    }
+  }
+
+  const PAINT = {
+    // Рыхлая земля: окатанные комья и корешки.
+    soil(g, layer, rnd) {
+      for (let i = 0; i < 40; i++) {
+        const r = 8 + rnd() * 22;
+        g.fillStyle = rgba(rnd() < 0.5 ? mix(layer.color, layer.dark, 0.3 + rnd() * 0.6)
+                                       : lighten(layer.color, rnd() * 0.16), 0.65);
+        wrapped(rnd() * TEX, rnd() * TEX, (ox, oy) => {
+          g.beginPath(); g.ellipse(ox, oy, r, r * (0.6 + rnd() * 0.5), rnd() * 3, 0, 6.2832); g.fill();
+        });
+      }
+      g.lineCap = 'round';
+      for (let i = 0; i < 14; i++) {
+        let x = rnd() * TEX, y = rnd() * TEX, a = rnd() * 6.2832;
+        g.strokeStyle = rgba(mix(layer.dark, [40, 28, 16], 0.5), 0.5);
+        g.lineWidth = 0.8 + rnd() * 1.4;
+        g.beginPath(); g.moveTo(x, y);
+        for (let s = 0; s < 4; s++) {
+          a += (rnd() - 0.5) * 1.4;
+          x += Math.cos(a) * (6 + rnd() * 12); y += Math.sin(a) * (6 + rnd() * 12);
+          g.lineTo(x, y);
+        }
+        g.stroke();
+      }
+      crumbs(g, layer, rnd, 260); flecks(g, layer, rnd, 18);
+    },
+
+    // Глина: гладкие горизонтальные натёки, почти без сколов.
+    clay(g, layer, rnd) {
+      for (let i = 0; i < 26; i++) {
+        const y = rnd() * TEX, h = 5 + rnd() * 16;
+        g.fillStyle = rgba(rnd() < 0.5 ? mix(layer.color, layer.dark, 0.25 + rnd() * 0.5)
+                                       : lighten(layer.color, rnd() * 0.14), 0.5);
+        for (let d = -1; d <= 1; d++) {
+          g.beginPath();
+          g.moveTo(-4, y + d * TEX);
+          for (let x = 0; x <= TEX + 4; x += 16) g.lineTo(x, y + d * TEX + Math.sin(x * 0.05 + i) * 4);
+          g.lineTo(TEX + 4, y + d * TEX + h);
+          for (let x = TEX + 4; x >= 0; x -= 16) g.lineTo(x, y + d * TEX + h + Math.sin(x * 0.05 + i) * 4);
+          g.closePath(); g.fill();
+        }
+      }
+      crumbs(g, layer, rnd, 200); flecks(g, layer, rnd, 16);
+    },
+
+    stone(g, layer, rnd) {
+      for (let i = 0; i < 34; i++) facet(g, layer, rnd, rnd() * TEX, rnd() * TEX, 14 + rnd() * 24);
+      crumbs(g, layer, rnd); flecks(g, layer, rnd, 30);
+    },
+
+    // Уголь: плитчатые пласты с зеркальными сколами.
+    coal(g, layer, rnd) {
+      for (let i = 0; i < 30; i++) {
+        const y = rnd() * TEX, h = 3 + rnd() * 11, x = rnd() * TEX, w = 40 + rnd() * 90;
+        const sh = rnd();
+        g.fillStyle = rgba(sh < 0.6 ? mix(layer.color, layer.dark, sh) : lighten(layer.color, 0.28), 0.85);
+        wrapped(x, y, (ox, oy) => {
+          g.beginPath();
+          g.moveTo(ox, oy); g.lineTo(ox + w, oy - 2); g.lineTo(ox + w, oy + h - 2); g.lineTo(ox, oy + h);
+          g.closePath(); g.fill();
+          g.fillStyle = rgba([255, 255, 255], 0.09);
+          g.fillRect(ox, oy, w, 1.2);
+          g.fillStyle = rgba(sh < 0.6 ? mix(layer.color, layer.dark, sh) : lighten(layer.color, 0.28), 0.85);
+        });
+      }
+      crumbs(g, layer, rnd, 240); flecks(g, layer, rnd, 22);
+    },
+
+    // Рудный слой: камень, прошитый металлическими прожилками.
+    metal(g, layer, rnd) {
+      for (let i = 0; i < 30; i++) facet(g, layer, rnd, rnd() * TEX, rnd() * TEX, 13 + rnd() * 22);
+      g.lineCap = 'round';
+      for (let i = 0; i < 6; i++) {
+        let x = rnd() * TEX, y = rnd() * TEX, a = rnd() * 6.2832;
+        const pts = [[x, y]];
+        for (let s = 0; s < 5; s++) {
+          a += (rnd() - 0.5) * 1.3;
+          x += Math.cos(a) * (9 + rnd() * 16); y += Math.sin(a) * (9 + rnd() * 16);
+          pts.push([x, y]);
+        }
+        wrapped(0, 0, (ox, oy) => {
+          g.strokeStyle = rgba(layer.vein, 0.3);
+          g.lineWidth = 1.4 + rnd() * 1.6;
+          g.beginPath();
+          pts.forEach((p, k) => k ? g.lineTo(p[0] + ox, p[1] + oy) : g.moveTo(p[0] + ox, p[1] + oy));
+          g.stroke();
+          g.strokeStyle = rgba(lighten(layer.vein, 0.5), 0.35);
+          g.lineWidth = 0.8;
+          g.stroke();
+        });
+      }
+      crumbs(g, layer, rnd); flecks(g, layer, rnd, 34);
+    },
+
+    // Кристаллы: вытянутые призмы, сросшиеся друзами.
+    crystal(g, layer, rnd) {
+      for (let i = 0; i < 22; i++) facet(g, layer, rnd, rnd() * TEX, rnd() * TEX, 12 + rnd() * 18);
+      for (let i = 0; i < 30; i++) {
+        const px = rnd() * TEX, py = rnd() * TEX;
+        const L = 10 + rnd() * 26, w = 3 + rnd() * 6, a = rnd() * 6.2832;
+        const ca = Math.cos(a), sa = Math.sin(a);
+        const P = (dx, dy) => [dx * ca - dy * sa, dx * sa + dy * ca];
+        const v = [P(0, -L), P(w, -L * 0.35), P(w * 0.7, L * 0.5), P(-w * 0.7, L * 0.5), P(-w, -L * 0.35)];
+        wrapped(px, py, (ox, oy) => {
+          g.beginPath();
+          v.forEach((p, k) => k ? g.lineTo(ox + p[0], oy + p[1]) : g.moveTo(ox + p[0], oy + p[1]));
+          g.closePath();
+          g.fillStyle = rgba(layer.vein, 0.28 + rnd() * 0.3);
+          g.fill();
+          g.strokeStyle = rgba(lighten(layer.vein, 0.6), 0.55);
+          g.lineWidth = 1;
+          g.stroke();
+        });
+      }
+      crumbs(g, layer, rnd, 200);
+    },
+
+    // Обсидиан: острые сколы стекла с резким контрастом.
+    glass(g, layer, rnd) {
+      for (let i = 0; i < 44; i++) {
+        const px = rnd() * TEX, py = rnd() * TEX, r = 10 + rnd() * 28;
+        const v = [];
+        for (let k = 0; k < 3; k++) {
+          const a = (k / 3) * 6.2832 + rnd() * 1.1;
+          v.push([Math.cos(a) * r * (0.5 + rnd()), Math.sin(a) * r * (0.5 + rnd())]);
+        }
+        const sh = rnd();
+        wrapped(px, py, (ox, oy) => {
+          g.beginPath();
+          v.forEach((p, k) => k ? g.lineTo(ox + p[0], oy + p[1]) : g.moveTo(ox + p[0], oy + p[1]));
+          g.closePath();
+          g.fillStyle = rgba(sh < 0.55 ? mix(layer.color, layer.dark, sh * 1.4)
+                                       : lighten(layer.color, (sh - 0.55) * 0.7), 0.85);
+          g.fill();
+          g.strokeStyle = rgba(lighten(layer.vein, 0.2), 0.3);
+          g.lineWidth = 1;
+          g.beginPath();
+          g.moveTo(ox + v[0][0], oy + v[0][1]); g.lineTo(ox + v[1][0], oy + v[1][1]);
+          g.stroke();
+        });
+      }
+      crumbs(g, layer, rnd, 160); flecks(g, layer, rnd, 26);
+    },
+
+    // Магма: текучие потёки и раскалённые карманы.
+    magma(g, layer, rnd) {
+      for (let i = 0; i < 30; i++) {
+        const y = rnd() * TEX, h = 6 + rnd() * 22;
+        g.fillStyle = rgba(mix(layer.color, layer.dark, 0.2 + rnd() * 0.8), 0.6);
+        for (let d = -1; d <= 1; d++) {
+          g.beginPath();
+          g.moveTo(-4, y + d * TEX);
+          for (let x = 0; x <= TEX + 4; x += 12) g.lineTo(x, y + d * TEX + Math.sin(x * 0.07 + i * 2) * 6);
+          g.lineTo(TEX + 4, y + d * TEX + h);
+          for (let x = TEX + 4; x >= 0; x -= 12) g.lineTo(x, y + d * TEX + h + Math.sin(x * 0.07 + i * 2) * 6);
+          g.closePath(); g.fill();
+        }
+      }
+      for (let i = 0; i < 22; i++) {
+        const r = 6 + rnd() * 17;
+        wrapped(rnd() * TEX, rnd() * TEX, (ox, oy) => {
+          const rg = g.createRadialGradient(ox, oy, 0, ox, oy, r);
+          rg.addColorStop(0, rgba(lighten(layer.vein, 0.35), 0.75 * layer.hot));
+          rg.addColorStop(0.5, rgba(layer.vein, 0.4 * layer.hot));
+          rg.addColorStop(1, rgba([255, 110, 30], 0));
+          g.fillStyle = rg;
+          g.beginPath(); g.arc(ox, oy, r, 0, 6.2832); g.fill();
+        });
+      }
+      crumbs(g, layer, rnd, 180);
+    }
+  };
 
   function texture(layer) {
     const cached = texCache.get(layer.ru);
@@ -92,68 +316,7 @@ const Render = (() => {
 
     g.fillStyle = layer.color;
     g.fillRect(0, 0, TEX, TEX);
-
-    // Гранёные фасетки. Многоугольник с тёмной расшивкой и бликом по верхней
-    // грани читается как скол камня; круги давали ощущение мыльных пузырей.
-    for (let i = 0; i < 34; i++) {
-      const px = rnd() * TEX, py = rnd() * TEX;
-      const n = 5 + Math.floor(rnd() * 3);
-      const rad = 14 + rnd() * 24;
-      const verts = [];
-      for (let k = 0; k < n; k++) {
-        const a = (k / n) * 6.2832 + (rnd() - 0.5) * 0.5;
-        const r = rad * (0.55 + rnd() * 0.65);
-        verts.push([Math.cos(a) * r, Math.sin(a) * r]);
-      }
-      const sh = rnd();
-      const col = sh < 0.55 ? mix(layer.color, layer.dark, 0.2 + sh * 1.1)
-                            : lighten(layer.color, (sh - 0.55) * 0.42);
-      wrapped(px, py, (ox, oy) => {
-        g.beginPath();
-        verts.forEach((v, k) => k ? g.lineTo(ox + v[0], oy + v[1]) : g.moveTo(ox + v[0], oy + v[1]));
-        g.closePath();
-        g.fillStyle = rgba(col, 0.8);
-        g.fill();
-        g.strokeStyle = rgba(layer.dark, 0.55);
-        g.lineWidth = 1.2;
-        g.stroke();
-        g.strokeStyle = rgba(lighten(layer.color, 0.45), 0.3);
-        g.lineWidth = 1;
-        g.beginPath();
-        g.moveTo(ox + verts[0][0], oy + verts[0][1]);
-        g.lineTo(ox + verts[1][0], oy + verts[1][1]);
-        g.stroke();
-      });
-    }
-
-    // крошка
-    for (let i = 0; i < 300; i++) {
-      g.fillStyle = rgba(mix(layer.color, layer.dark, 0.4 + rnd() * 0.6), 0.3 + rnd() * 0.4);
-      const s = 0.8 + rnd() * 2;
-      wrapped(rnd() * TEX, rnd() * TEX, (ox, oy) => g.fillRect(ox, oy, s, s));
-    }
-
-    // вкрапления минерала — они делают слои узнаваемыми
-    const spec = lighten(layer.color, 0.6);
-    for (let i = 0; i < 34; i++) {
-      g.fillStyle = rgba(spec, 0.35 + rnd() * 0.5);
-      const s = 1.2 + rnd() * 2.6;
-      wrapped(rnd() * TEX, rnd() * TEX, (ox, oy) => g.fillRect(ox, oy, s, s * (0.5 + rnd())));
-    }
-
-    // раскалённые прожилки в глубоких слоях
-    if (layer.hot) {
-      for (let i = 0; i < 18; i++) {
-        const r = 5 + rnd() * 14;
-        wrapped(rnd() * TEX, rnd() * TEX, (ox, oy) => {
-          const rg = g.createRadialGradient(ox, oy, 0, ox, oy, r);
-          rg.addColorStop(0, rgba([255, 200, 110], 0.6 * layer.hot));
-          rg.addColorStop(1, rgba([255, 120, 40], 0));
-          g.fillStyle = rg;
-          g.beginPath(); g.arc(ox, oy, r, 0, 6.2832); g.fill();
-        });
-      }
-    }
+    (PAINT[layer.style] || PAINT.stone)(g, layer, rnd);
 
     texCache.set(layer.ru, c);
     return c;
@@ -208,7 +371,8 @@ const Render = (() => {
         rot: Math.random() * 6.28, vrot: (Math.random() - 0.5) * 0.55,
         size: 3 + Math.random() * 5,
         life: 1,
-        col: rgba(mix(layer.color, layer.dark, Math.random() * 0.6), 1)
+        col: rgba(Math.random() < 0.25 ? layer.vein
+                                       : mix(layer.color, layer.dark, Math.random() * 0.6), 1)
       });
     }
     for (let i = 0; i < 10; i++) {
@@ -226,6 +390,30 @@ const Render = (() => {
     glow = 1;
   }
 
+  // Разбитая друза: звонкий разлёт осколков цвета жилы.
+  function shatter(layer) {
+    const x = W / 2, y = drillY + 34;
+    for (let i = 0; i < 18; i++) {
+      const a = Math.random() * 6.2832, s = 2 + Math.random() * 6;
+      shards.push({
+        x, y,
+        vx: Math.cos(a) * s, vy: Math.sin(a) * s - 1.5,
+        rot: Math.random() * 6.28, vrot: (Math.random() - 0.5) * 0.7,
+        size: 3 + Math.random() * 6, life: 1,
+        col: layer.vein
+      });
+    }
+    for (let i = 0; i < 14; i++) {
+      sparks.push({
+        x, y,
+        vx: (Math.random() - 0.5) * 9, vy: -Math.random() * 6,
+        life: 1, size: 1.4 + Math.random() * 2.4
+      });
+    }
+    shake = Math.min(shake + 6, 13);
+    flash = 0.55; flashCol = layer.vein;
+  }
+
   function puff(x, y, n) {
     for (let i = 0; i < n; i++) {
       dust.push({
@@ -239,12 +427,16 @@ const Render = (() => {
   }
 
   function step(dt) {
-    for (let i = chunks.length - 1; i >= 0; i--) {
-      const p = chunks[i];
-      p.x += p.vx; p.y += p.vy; p.vy += 0.24; p.rot += p.vrot;
-      p.life -= dt * 1.3;
-      if (p.life <= 0) chunks.splice(i, 1);
-    }
+    const grav = (arr, g, fade) => {
+      for (let i = arr.length - 1; i >= 0; i--) {
+        const p = arr[i];
+        p.x += p.vx; p.y += p.vy; p.vy += g; p.rot += p.vrot || 0;
+        p.life -= dt * fade;
+        if (p.life <= 0) arr.splice(i, 1);
+      }
+    };
+    grav(chunks, 0.24, 1.3);
+    grav(shards, 0.2, 1.05);
     for (let i = sparks.length - 1; i >= 0; i--) {
       const p = sparks[i];
       p.x += p.vx; p.y += p.vy; p.vy += 0.2; p.vx *= 0.97;
@@ -260,6 +452,160 @@ const Render = (() => {
     shake = Math.max(0, shake - dt * 26);
     recoil = Math.max(0, recoil - dt * 5.5);
     glow = Math.max(0, glow - dt * 2.2);
+    flash = Math.max(0, flash - dt * 1.7);
+    if (banner) { banner.t -= dt * 0.42; if (banner.t <= 0) banner = null; }
+  }
+
+  /* ---------- мир: жилы, друзы, пустоты ---------- */
+
+  // Всё ниже живёт в мировых координатах и потому никогда не повторяется
+  // на экране, в отличие от тайла.
+
+  function worldFeatures(topM, bottomM, pxPerM, layer) {
+    const cellM = windowM * 0.55;
+    const i0 = Math.floor(topM / cellM) - 1;
+    const i1 = Math.ceil(bottomM / cellM) + 1;
+    const toY = m => (m - topM) * pxPerM;
+
+    for (let i = i0; i <= i1; i++) {
+      const kind = hash2(i, 4242);
+
+      // Рудная жила: пологая волна поперёк экрана. Амплитуда маленькая, а
+      // длина волны в разы больше ширины пятна — иначе получается зигзаг
+      // кардиограммы, а не прожилка в камне.
+      if (kind > 0.62) {
+        const y0 = toY((i + hash2(i, 11) * 0.7) * cellM);
+        if (y0 < -80 || y0 > H + 80) continue;
+        const amp = 5 + hash2(i, 12) * 14;
+        const wl = 190 + hash2(i, 13) * 260;
+        const ph = hash2(i, 16) * 6.2832;
+        const thick = 2.5 + hash2(i, 14) * 5;
+        const at = x => y0 + Math.sin(x / wl * 6.2832 + ph) * amp
+                           + Math.sin(x / (wl * 0.34) * 6.2832 + ph * 2) * amp * 0.26;
+        ctx.save();
+        ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+        for (let pass = 0; pass < 2; pass++) {
+          ctx.strokeStyle = pass ? rgba(lighten(layer.vein, 0.6), 0.42) : rgba(layer.vein, 0.5);
+          ctx.lineWidth = pass ? thick * 0.32 : thick;
+          ctx.beginPath();
+          for (let x = -20; x <= W + 20; x += 7) {
+            x === -20 ? ctx.moveTo(x, at(x)) : ctx.lineTo(x, at(x));
+          }
+          ctx.stroke();
+        }
+        ctx.restore();
+      }
+
+      // друза: гроздь кристаллов у стены
+      if (kind > 0.3 && kind < 0.45) {
+        const cy = toY((i + hash2(i, 21) * 0.8) * cellM);
+        const side = hash2(i, 22) > 0.5 ? 1 : -1;
+        const cx = W / 2 + side * (W * 0.28 + hash2(i, 23) * W * 0.12);
+        const key = 'd' + i;
+        if (!smashed.has(key)) {
+          ctx.save();
+          ctx.translate(cx, cy);
+          for (let k = 0; k < 7; k++) {
+            const a = -1.57 + (hash2(i, 30 + k) - 0.5) * 2.4;
+            const L = 14 + hash2(i, 40 + k) * 30;
+            const w = 4 + hash2(i, 50 + k) * 7;
+            ctx.save(); ctx.rotate(a);
+            ctx.beginPath();
+            ctx.moveTo(0, -L); ctx.lineTo(w, -L * 0.3); ctx.lineTo(w * 0.6, L * 0.25);
+            ctx.lineTo(-w * 0.6, L * 0.25); ctx.lineTo(-w, -L * 0.3);
+            ctx.closePath();
+            ctx.fillStyle = rgba(layer.vein, 0.45);
+            ctx.fill();
+            ctx.strokeStyle = rgba(lighten(layer.vein, 0.6), 0.7);
+            ctx.lineWidth = 1.2; ctx.stroke();
+            ctx.restore();
+          }
+          const rg = ctx.createRadialGradient(0, 0, 0, 0, 0, 46);
+          rg.addColorStop(0, rgba(layer.vein, 0.22));
+          rg.addColorStop(1, rgba(layer.vein, 0));
+          ctx.fillStyle = rg;
+          ctx.beginPath(); ctx.arc(0, 0, 46, 0, 6.2832); ctx.fill();
+          ctx.restore();
+
+          // бур дошёл до друзы — разбиваем
+          if (Math.abs(cy - drillY) < 26 && Math.abs(cx - W / 2) < W * 0.34) {
+            smashed.add(key);
+            shatter(layer);
+          }
+        }
+      }
+    }
+  }
+
+  // Пустоты. Через них бур проходит насквозь: породы нет, видно тёмный свод
+  // со сталактитами. Встречаются заметно реже жил, чтобы оставаться событием.
+  function cavities(topM, bottomM, pxPerM, layer) {
+    const spanM = windowM * 2.4;
+    const i0 = Math.floor(topM / spanM) - 1;
+    const i1 = Math.ceil(bottomM / spanM) + 1;
+
+    for (let i = i0; i <= i1; i++) {
+      if (hash2(i, 909) < 0.62) continue;
+      const top = (i + hash2(i, 910) * 0.6) * spanM;
+      // Полость — это узкая щель, а не провал в полэкрана: на большой высоте
+      // она читается как конец мира, а не как пустота внутри породы.
+      const hM = spanM * (0.04 + hash2(i, 911) * 0.075);
+      const y0 = (top - topM) * pxPerM, y1 = (top + hM - topM) * pxPerM;
+      if (y1 < -40 || y0 > H + 40) continue;
+
+      const wob = hash2(i, 912);
+      ctx.save();
+      ctx.beginPath();
+      ctx.moveTo(-30, y0 + 10 * wob);
+      ctx.quadraticCurveTo(W * 0.3, y0 - 16, W * 0.62, y0 + 6);
+      ctx.quadraticCurveTo(W * 0.9, y0 + 18, W + 30, y0 + 4);
+      ctx.lineTo(W + 30, y1 - 4);
+      ctx.quadraticCurveTo(W * 0.7, y1 + 18, W * 0.36, y1 - 3);
+      ctx.quadraticCurveTo(W * 0.12, y1 - 14, -30, y1 + 6);
+      ctx.closePath();
+      ctx.clip();
+
+      // Дальняя стена — это та же порода, только глубоко в тени. Заливать
+      // полость чёрным нельзя: получается дыра в текстуре, а не помещение.
+      const g = ctx.createLinearGradient(0, y0, 0, y1);
+      g.addColorStop(0, rgba(mix(layer.dark, [0, 0, 0], 0.72), 0.97));
+      g.addColorStop(0.45, rgba(mix(layer.dark, [0, 0, 0], 0.55), 0.93));
+      g.addColorStop(1, rgba(mix(layer.dark, [0, 0, 0], 0.68), 0.96));
+      ctx.fillStyle = g;
+      ctx.fillRect(-30, y0 - 30, W + 60, y1 - y0 + 60);
+
+      ctx.globalAlpha = 0.16;
+      ctx.translate(0, -(topM * pxPerM) % TEX);
+      ctx.fillStyle = ctx.createPattern(texture(layer), 'repeat');
+      ctx.fillRect(-30, y0 - 30, W + 60, y1 - y0 + 90);
+      ctx.translate(0, (topM * pxPerM) % TEX);
+      ctx.globalAlpha = 1;
+
+      // сталактиты и сталагмиты
+      for (let k = 0; k < 11; k++) {
+        const hx = hash2(i, 920 + k), hl = hash2(i, 940 + k);
+        const x = hx * W;
+        const L = Math.min(10 + hl * 34, (y1 - y0) * 0.55);
+        ctx.fillStyle = rgba(mix(layer.dark, [0, 0, 0], 0.35), 0.95);
+        ctx.beginPath();
+        ctx.moveTo(x - 6 - hl * 4, y0); ctx.lineTo(x + 6 + hl * 4, y0); ctx.lineTo(x, y0 + L);
+        ctx.closePath(); ctx.fill();
+        if (hl > 0.45) {
+          const L2 = Math.min(8 + hx * 24, (y1 - y0) * 0.45);
+          ctx.beginPath();
+          ctx.moveTo(x - 7, y1); ctx.lineTo(x + 7, y1); ctx.lineTo(x + (hx - 0.5) * 6, y1 - L2);
+          ctx.closePath(); ctx.fill();
+        }
+      }
+
+      // подсветка снизу, чтобы свод читался объёмным
+      const lg = ctx.createRadialGradient(W / 2, y1, 0, W / 2, y1, W * 0.7);
+      lg.addColorStop(0, rgba(layer.hot ? layer.vein : [120, 130, 160], 0.14));
+      lg.addColorStop(1, rgba([0, 0, 0], 0));
+      ctx.fillStyle = lg;
+      ctx.fillRect(-30, y0 - 30, W + 60, y1 - y0 + 60);
+      ctx.restore();
+    }
   }
 
   /* ---------- части картинки ---------- */
@@ -283,8 +629,8 @@ const Render = (() => {
       ctx.fillRect(0, y0 - off - TEX, W, (y1 - y0) + TEX * 2);
       ctx.translate(0, -off);
 
-      // Второй проход: крупные пятна в мировых координатах. Сетка привязана
-      // к метрам, а не к тайлу, поэтому повтор не читается.
+      // Крупные пятна в мировых координатах: сетка привязана к метрам, а не к
+      // тайлу, поэтому повтор не читается.
       const cellPx = 190;
       const cellM = cellPx / pxPerM;
       const i0 = Math.floor(topM / cellM) - 1;
@@ -303,6 +649,9 @@ const Render = (() => {
         }
       }
       ctx.globalAlpha = 1;
+
+      worldFeatures(Math.max(layer.from, topM), Math.min(to, bottomM), pxPerM, layer);
+      cavities(Math.max(layer.from, topM), Math.min(to, bottomM), pxPerM, layer);
       ctx.restore();
 
       // затемнение к низу слоя — глубина читается даже внутри одного слоя
@@ -337,9 +686,10 @@ const Render = (() => {
     ctx.save();
     ctx.beginPath(); ctx.rect(sx, 0, sw, drillY); ctx.clip();
 
-    // фактура стен: скол по краям ствола
     const every = windowM / 3;
     const first = Math.ceil(topM / every) * every;
+
+    // фактура стен
     for (let m = first - every * 3; m < topM + windowM; m += every / 4) {
       const y = (m - topM) * pxPerM;
       if (y < -20 || y > drillY) continue;
@@ -350,7 +700,6 @@ const Render = (() => {
       ctx.fillRect(sx + sw - w, y + 5, w, 5 + h * 9);
     }
 
-    // кромки
     const edge = 18;
     const le = ctx.createLinearGradient(sx, 0, sx + edge, 0);
     le.addColorStop(0, rgba([0, 0, 0], 0.6)); le.addColorStop(1, rgba([0, 0, 0], 0));
@@ -363,9 +712,9 @@ const Render = (() => {
     ctx.fillRect(sx, 0, 1.5, drillY);
     ctx.fillRect(sx + sw - 1.5, 0, 1.5, drillY);
 
-    // Крепь. Шаг задан в метрах и привязан к размеру кадра, поэтому на любой
-    // глубине по экрану ползёт одинаковое их число — без этого на быстрых
-    // слоях картинка превращается в мельтешение.
+    // Крепь. Шаг в метрах привязан к размеру кадра, поэтому на любой глубине
+    // по экрану ползёт одинаковое их число — иначе на быстрых слоях
+    // картинка превращается в мельтешение.
     for (let m = first; m < topM + windowM; m += every) {
       const y = (m - topM) * pxPerM;
       if (y > drillY) break;
@@ -391,32 +740,54 @@ const Render = (() => {
     }
 
     ctx.restore();
-    return { sx, sw };
+  }
+
+  // Трос. Рисуется в экранных координатах от верхней кромки кадра, а не внутри
+  // масштаба бура: раньше он обрывался на середине шахты, а кольца стояли
+  // ровным столбиком и не следовали за изгибом.
+  function drawCable(tipY) {
+    const N = 30;
+    const pts = [];
+    for (let i = 0; i <= N; i++) {
+      const t = i / N;
+      const sway = Math.sin(t * Math.PI) * Math.sin(time * 1.25 + t * 3.6) * 5.5;
+      pts.push([W / 2 + sway, -30 + (tipY + 30) * t]);
+    }
+    const path = () => {
+      ctx.beginPath();
+      pts.forEach((p, k) => k ? ctx.lineTo(p[0], p[1]) : ctx.moveTo(p[0], p[1]));
+    };
+    ctx.save();
+    ctx.lineJoin = 'round'; ctx.lineCap = 'round';
+    ctx.strokeStyle = '#221d2b'; ctx.lineWidth = 11; path(); ctx.stroke();
+    ctx.strokeStyle = '#3b3348'; ctx.lineWidth = 7.5; path(); ctx.stroke();
+    ctx.strokeStyle = rgba([168, 158, 190], 0.28); ctx.lineWidth = 2; path(); ctx.stroke();
+
+    // кольца ставим по касательной к тросу
+    for (let i = 2; i < N - 1; i += 3) {
+      const p = pts[i], q = pts[i + 1];
+      const a = Math.atan2(q[1] - p[1], q[0] - p[0]);
+      ctx.save();
+      ctx.translate(p[0], p[1]); ctx.rotate(a);
+      ctx.fillStyle = '#4c4360';
+      ctx.fillRect(-2.6, -7, 5.2, 14);
+      ctx.fillStyle = rgba([180, 170, 205], 0.3);
+      ctx.fillRect(-2.6, -7, 5.2, 2);
+      ctx.restore();
+    }
+    ctx.restore();
   }
 
   function drawDrill(hot) {
     const bob = Math.sin(time * 2.2) * 1.4;
     const y = drillY + recoil * 9 + bob;
+    const S = 1.55;
+
+    drawCable(y - 36 * S);
 
     ctx.save();
     ctx.translate(W / 2, y);
-    ctx.scale(1.55, 1.55);   // машина должна читаться, а не теряться в кадре
-
-    // шланг к поверхности: сегментами, а не палкой
-    const hoseTop = (bandTop - y) / 1.55;
-    ctx.strokeStyle = rgba([44, 38, 50], 0.95);
-    ctx.lineWidth = 6;
-    ctx.beginPath();
-    ctx.moveTo(0, -34);
-    ctx.quadraticCurveTo(Math.sin(time * 1.5) * 6, (hoseTop - 34) * 0.5, 0, hoseTop);
-    ctx.stroke();
-    ctx.strokeStyle = rgba([88, 78, 100], 0.5);
-    ctx.lineWidth = 1.6;
-    ctx.stroke();
-    for (let i = -40; i > hoseTop; i -= 13) {
-      ctx.fillStyle = rgba([58, 50, 66], 0.9);
-      ctx.fillRect(-4, i, 8, 3);
-    }
+    ctx.scale(S, S);   // машина должна читаться, а не теряться в кадре
 
     // корпус
     const bg = ctx.createLinearGradient(-19, 0, 19, 0);
@@ -431,20 +802,17 @@ const Render = (() => {
     ctx.fillRect(-19, -36, 38, 4.5);
     ctx.fillRect(-19, -12, 38, 3.5);
 
-    // предупреждающая полоса
     ctx.fillStyle = '#ffa62b';
     ctx.fillRect(-19, -21, 38, 5);
     ctx.fillStyle = rgba([26, 16, 19], 0.6);
     for (let i = -19; i < 19; i += 9) ctx.fillRect(i, -21, 4.5, 5);
 
-    // заклёпки и фара
     ctx.fillStyle = rgba([38, 32, 46], 0.85);
     ctx.beginPath(); ctx.arc(-13, -30, 1.8, 0, 6.2832); ctx.fill();
     ctx.beginPath(); ctx.arc(13, -30, 1.8, 0, 6.2832); ctx.fill();
     ctx.fillStyle = rgba([255, 226, 160], 0.5 + glow * 0.5);
     ctx.beginPath(); ctx.arc(0, -28, 3.2, 0, 6.2832); ctx.fill();
 
-    // боковые поршни ходят в такт отдаче
     const pist = recoil * 5;
     ctx.fillStyle = '#67606f';
     ctx.fillRect(-25, -30 + pist, 6, 18);
@@ -453,7 +821,7 @@ const Render = (() => {
     ctx.fillRect(-25, -30 + pist, 1.6, 18);
     ctx.fillRect(19, -30 + pist, 1.6, 18);
 
-    // долото: конус с винтовой навивкой, которая крутится
+    // долото
     ctx.beginPath();
     ctx.moveTo(-15, -6); ctx.lineTo(15, -6); ctx.lineTo(0, 34); ctx.closePath();
     const bit = ctx.createLinearGradient(-15, 0, 15, 0);
@@ -472,25 +840,20 @@ const Render = (() => {
       const t = (bitAngle * 0.16 + i / 7) % 1;
       const yy = -8 + t * 44;
       ctx.beginPath();
-      ctx.moveTo(-16, yy);
-      ctx.lineTo(16, yy - SKEW);
-      ctx.lineTo(16, yy - SKEW + 3.6);
-      ctx.lineTo(-16, yy + 3.6);
+      ctx.moveTo(-16, yy); ctx.lineTo(16, yy - SKEW);
+      ctx.lineTo(16, yy - SKEW + 3.6); ctx.lineTo(-16, yy + 3.6);
       ctx.closePath();
       ctx.fillStyle = rgba([80, 38, 8], 0.5);
       ctx.fill();
       ctx.beginPath();
-      ctx.moveTo(-16, yy + 3.6);
-      ctx.lineTo(16, yy - SKEW + 3.6);
-      ctx.lineTo(16, yy - SKEW + 4.9);
-      ctx.lineTo(-16, yy + 4.9);
+      ctx.moveTo(-16, yy + 3.6); ctx.lineTo(16, yy - SKEW + 3.6);
+      ctx.lineTo(16, yy - SKEW + 4.9); ctx.lineTo(-16, yy + 4.9);
       ctx.closePath();
       ctx.fillStyle = rgba([255, 214, 150], 0.24);
       ctx.fill();
     }
     ctx.restore();
 
-    // раскалённое остриё
     const heat = Math.max(glow, hot * 0.55);
     if (heat > 0.01) {
       const rg = ctx.createRadialGradient(0, 30, 0, 0, 30, 30);
@@ -506,8 +869,7 @@ const Render = (() => {
 
   function drawParticles() {
     for (const p of dust) {
-      const a = Math.max(0, p.life) * 0.9;
-      ctx.globalAlpha = a * 0.35;
+      ctx.globalAlpha = Math.max(0, p.life) * 0.32;
       ctx.drawImage(blobLight, p.x - p.r, p.y - p.r, p.r * 2, p.r * 2);
     }
     ctx.globalAlpha = 1;
@@ -519,6 +881,19 @@ const Render = (() => {
       ctx.fillRect(-p.size / 2, -p.size / 2, p.size, p.size * 0.8);
       ctx.restore();
     }
+    for (const p of shards) {
+      ctx.save();
+      ctx.globalAlpha = Math.max(0, p.life);
+      ctx.translate(p.x, p.y); ctx.rotate(p.rot);
+      ctx.beginPath();
+      ctx.moveTo(0, -p.size); ctx.lineTo(p.size * 0.5, p.size * 0.5); ctx.lineTo(-p.size * 0.5, p.size * 0.5);
+      ctx.closePath();
+      ctx.fillStyle = rgba(p.col, 0.85);
+      ctx.fill();
+      ctx.strokeStyle = rgba(lighten(p.col, 0.6), 0.8);
+      ctx.lineWidth = 1; ctx.stroke();
+      ctx.restore();
+    }
     ctx.globalCompositeOperation = 'lighter';
     for (const p of sparks) {
       ctx.globalAlpha = Math.max(0, p.life);
@@ -527,6 +902,38 @@ const Render = (() => {
     }
     ctx.globalCompositeOperation = 'source-over';
     ctx.globalAlpha = 1;
+  }
+
+  // Смена слоя — главное событие в игре. Вспышка цветом нового слоя плюс его
+  // имя во весь экран: игрок должен заметить, что порода сменилась.
+  function drawBanner() {
+    if (!banner) return;
+    const t = banner.t;
+    const a = t > 0.75 ? (1 - t) * 4 : Math.min(1, t / 0.35);
+    const rise = (1 - t) * 16;
+    // Держим баннер в верхней трети: ниже он налезает на буровую машину.
+    const y = bandTop + (bandBottom - bandTop) * 0.16 - rise;
+
+    ctx.save();
+    ctx.globalAlpha = a;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+
+    ctx.font = '700 11px "Segoe UI", Roboto, system-ui, sans-serif';
+    ctx.fillStyle = rgba(banner.tint, 0.85);
+    ctx.fillText(banner.kicker.toUpperCase(), W / 2, y - 26);
+
+    ctx.font = '800 30px "Segoe UI", Roboto, system-ui, sans-serif';
+    ctx.lineWidth = 5;
+    ctx.strokeStyle = rgba([10, 8, 12], 0.75);
+    ctx.strokeText(banner.name, W / 2, y);
+    ctx.fillStyle = '#fff';
+    ctx.fillText(banner.name, W / 2, y);
+
+    const lw = 44 * a;
+    ctx.fillStyle = rgba(banner.tint, 0.8);
+    ctx.fillRect(W / 2 - lw / 2, y + 24, lw, 2.5);
+    ctx.restore();
   }
 
   /* ---------- кадр ---------- */
@@ -545,6 +952,15 @@ const Render = (() => {
     bitAngle += dt * (4 + Math.min(rate / windowM, 3) * 12);
     lastDepth = depth;
 
+    const layer = DATA.layerAt(depth);
+    if (lastLayer && layer !== lastLayer) {
+      banner = { name: layer[I18N.lang] || layer.ru, kicker: I18N.t('new_layer'), tint: layer.vein, t: 1 };
+      flash = 0.8; flashCol = layer.vein;
+      shake = Math.max(shake, 7);
+      smashed.clear();     // друзы привязаны к индексу ячейки, он общий для слоёв
+    }
+    lastLayer = layer;
+
     step(dt);
     ctx.clearRect(0, 0, W, H);
 
@@ -552,7 +968,6 @@ const Render = (() => {
     // Выше нулевой отметки породы нет, и кадр там оставался прозрачным —
     // в начале игры пол-экрана зияло пустотой. Прижимаем камеру к поверхности.
     const topM = Math.max(0, depth - drillY / pxPerM);
-    const layer = DATA.layerAt(depth);
 
     ctx.save();
     if (shake) ctx.translate((Math.random() - 0.5) * shake, (Math.random() - 0.5) * shake);
@@ -560,7 +975,6 @@ const Render = (() => {
     drawRock(topM, pxPerM);
     drawShaft(topM, pxPerM);
 
-    // свет от бура, разлитый по забою
     const lg = ctx.createRadialGradient(W / 2, drillY + 20, 0, W / 2, drillY + 20, W * 0.6);
     lg.addColorStop(0, rgba([255, 178, 92], 0.2 + glow * 0.16));
     lg.addColorStop(1, rgba([255, 150, 60], 0));
@@ -584,6 +998,15 @@ const Render = (() => {
     v.addColorStop(1, rgba([0, 0, 0], 0.55));
     ctx.fillStyle = v;
     ctx.fillRect(0, 0, W, H);
+
+    if (flash > 0.005) {
+      ctx.globalCompositeOperation = 'lighter';
+      ctx.fillStyle = rgba(flashCol || '#ffffff', flash * 0.32);
+      ctx.fillRect(0, 0, W, H);
+      ctx.globalCompositeOperation = 'source-over';
+    }
+
+    drawBanner();
   }
 
   return { init, draw, burst, resize, relayout };
