@@ -61,10 +61,9 @@ while ($listener.IsListening) {
 
     if ($rawPath -eq '/') { $rawPath = '/index.html' }
 
-    # На платформе загрузчик SDK отдаётся по /sdk.js. Локально подставляем
-    # заглушку из tools/, чтобы проверялась боевая ветка кода, а не только
-    # деградация в отсутствие SDK. В архив игры заглушка не попадает.
-    if ($rawPath -eq '/sdk.js') { $rawPath = '/tools/sdk-mock.js' }
+    # Заглушка SDK лежит в tools/sdk-mock.js и подключается вручную из
+    # консоли браузера: игра ходит за настоящим загрузчиком на yandex.ru,
+    # подменять его на уровне сервера незачем.
     $candidate = Join-Path $rootFull ($rawPath.TrimStart('/') -replace '/', '\')
 
     $resolved = $null
