@@ -44,10 +44,13 @@ const UI = (() => {
 
     el['v-depth'].textContent = DATA.fmt(s.depth) + ' ' + I18N.t('meters');
     el['v-ore'].textContent = DATA.fmt(s.ore);
-    el['v-layer'].textContent = layer[I18N.lang] || layer.ru;
+    // Твёрдость показываем рядом со слоем: без неё падение м/с на новом слое
+    // выглядит как поломка, а не как «порода стала крепче».
+    el['v-layer'].textContent = (layer[I18N.lang] || layer.ru) +
+      (layer.hard > 1 ? ' · ' + I18N.t('hardness', { n: DATA.fmt(layer.hard) }) : '');
     el['v-rate'].textContent = DATA.fmt(State.rate()) + ' ' + I18N.t('per_sec');
     el['v-progress'].style.width = pct + '%';
-    el['v-clickpower'].textContent = '+' + DATA.fmt(State.clickPower()) + ' ' + I18N.t('meters');
+    el['v-clickpower'].textContent = '+' + DATA.fmt(State.clickMeters()) + ' ' + I18N.t('meters');
   }
 
   /* ---------- карточки ---------- */
