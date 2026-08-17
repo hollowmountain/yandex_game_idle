@@ -250,6 +250,11 @@ button { font-family: inherit; color: inherit; border: 0; background: none; curs
   position: relative; overflow: hidden;
   display: grid; grid-template-columns: 32px 1fr auto; align-items: center; gap: 10px;
   padding: 7px 12px; border-radius: 12px;
+  /* Карточка — элемент флекс-колонки, а такие по умолчанию сжимаются, когда
+     содержимое списка выше контейнера. Вместе с overflow:hidden, который нужен
+     для бегущего блика, это срезало описание и счётчик. Список должен
+     прокручиваться, а не плющить строки. */
+  flex-shrink: 0;
   background: linear-gradient(180deg, var(--panel-3), var(--panel-2));
   border: 1px solid rgba(255,255,255,.06);
   box-shadow: 0 2px 8px rgba(0,0,0,.3), inset 0 1px 0 rgba(255,255,255,.05);
@@ -300,11 +305,13 @@ button { font-family: inherit; color: inherit; border: 0; background: none; curs
   font-variant-numeric: tabular-nums; white-space: nowrap;
 }
 .card:disabled .card-cost { color: var(--bad); }
+/* Именно эта колонка задавала высоту строки: две строки с полуторным
+   интервалом тянули карточку сильнее, чем название с описанием. */
 .card-count {
   min-width: 30px; text-align: right; font-size: 12px; font-weight: 700;
-  color: var(--dim); font-variant-numeric: tabular-nums; line-height: 1.5;
+  color: var(--dim); font-variant-numeric: tabular-nums; line-height: 1.32;
 }
-.empty { padding: 24px 14px; text-align: center; color: var(--dim); font-size: 13px; line-height: 1.6; }
+.empty { flex-shrink: 0; padding: 24px 14px; text-align: center; color: var(--dim); font-size: 13px; line-height: 1.6; }
 .empty b { color: var(--text); font-size: 15px; }
 
 /* ---------- dig ---------- */
